@@ -117,7 +117,7 @@ def test_http_chat_市场分析师_流内无error(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "collab", type("C", (), {
         "begin_turn": staticmethod(lambda role: None),
         "instruction": staticmethod(lambda role: "")})())
-    monkeypatch.setattr(_api_agents, "get_backend", lambda cfg: backend)
+    monkeypatch.setattr("loom.routes.get_backend_for", lambda cfg, purpose="": backend)
 
     root = str(tmp_path)
     (tmp_path / "loom.toml").write_text('[novel]\ntitle = "测试书"\n', encoding="utf-8")

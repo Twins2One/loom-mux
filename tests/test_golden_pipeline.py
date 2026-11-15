@@ -14,11 +14,35 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from loom.agents import run_pipeline
 from loom.config import load_config, save_config
 from loom.parse import EDIT_NOTE_CLOSE, EDIT_NOTE_OPEN
 
 GOLDEN = Path(__file__).parent / "golden" / "pipeline_v1.json"
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_embed(monkeypatch):
+    """golden 快照必须**与环境无关**（2026-11-16 补）。
+
+    事实沉淀走 memory.remember，而它要求语义引擎可用来算向量；本机没装
+    `loom/vendor/embed/model.onnx` 时它直接拒写，事件里就成了「记入 0 条」，
+    快照于是随"这台机器有没有模型"而变 —— 别人 clone 下来必红。
+    这里把向量化换成确定性假向量，两处环境读数一致。
+    """
+    import numpy as np
+    from loom import memory as _m
+
+    def fake_one(text):
+        v = np.zeros(16, dtype="float32")
+        for i, ch in enumerate(str(text)):
+            v[i % 16] += (ord(ch) % 97) + 1.0
+        n = float(np.linalg.norm(v))
+        return (v / n) if n > 0 else v
+
+    monkeypatch.setattr(_m, "_embed_one", fake_one, raising=False)
 
 # 每棒的固定产出(避开违禁词表与「不是A而是B」翻转句,保证 detector 路径确定性为零命中)
 # 细纲三棒:细纲师 → 设定师 → 分镜师(依次交出 本章细纲 / 本章细纲(含设定) / 本章细纲(含分镜))
@@ -118,13 +142,29 @@ def test_pipeline_golden(project: Path):
     # 归一化:事件里的绝对路径(edit_note/chapter_done 的 path 字段)按项目根替换,快照才可复现。
     # 必须在 dumps 之前做:Windows 根含反斜杠,进了 JSON 会被转义成 \\,dumps 后再 replace 永远对不上;
     # 只动「含项目根的字符串」,顺手把分隔符归一成 /,正文内容字符串绝不受影响。
+    #
+    # 2026-11-16:记忆片段里引用的路径是**小写+正斜杠**写法,原来的大小写敏感替换兜不住,
+    # 于是本机绝对路径被写进了 golden 快照(开源副本的 A-5 扫描会命中用户名)。
+    # 现在把四种形态都换掉:原样 / 正斜杠 / 小写 / 小写正斜杠。
+    _root_forms = []
+    for _v in (str(project), str(project).replace("\\", "/")):
+        for _w in (_v, _v.lower()):
+            if _w not in _root_forms:
+                _root_forms.append(_w)
+    # 长的先换,避免 "C:\A" 先把 "C:\A\B" 截断
+    _root_forms.sort(key=len, reverse=True)
+
     def _norm(o):
         if isinstance(o, dict):
             return {k: _norm(v) for k, v in o.items()}
         if isinstance(o, list):
             return [_norm(v) for v in o]
-        if isinstance(o, str) and str(project) in o:
-            return o.replace(str(project), "<ROOT>").replace("\\", "/")
+        if isinstance(o, str):
+            s = o
+            for form in _root_forms:
+                if form in s:
+                    s = s.replace(form, "<ROOT>")
+            return s.replace("\\", "/")
         return o
     blob = json.dumps(_norm(record), ensure_ascii=False, indent=1, sort_keys=True)
 

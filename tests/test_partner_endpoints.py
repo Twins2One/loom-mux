@@ -21,7 +21,7 @@ from conftest import ScriptedBackend  # noqa: E402
 
 
 def test_say_streams_events(project, monkeypatch):
-    monkeypatch.setattr(server, "get_backend", lambda cfg: ScriptedBackend(["你好呀,我们从金手指聊起?"]))
+    monkeypatch.setattr("loom.routes.get_backend_for", lambda cfg, purpose="": ScriptedBackend(["你好呀,我们从金手指聊起?"]))
     client = TestClient(server.app, base_url="http://127.0.0.1")
     r = client.post("/api/partner/say", json={"root": str(project), "text": "你好"})
     assert r.status_code == 200
@@ -41,7 +41,7 @@ def test_say_error_event_uses_partner_envelope(project, monkeypatch):
         def complete(self, system, user, *, max_chars=None, on_chunk=None):
             raise LoomBackendError("后端炸了", code="rate_limited")
 
-    monkeypatch.setattr(server, "get_backend", lambda cfg: BoomBackend())
+    monkeypatch.setattr("loom.routes.get_backend_for", lambda cfg, purpose="": BoomBackend())
     client = TestClient(server.app, base_url="http://127.0.0.1")
     r = client.post("/api/partner/say", json={"root": str(project), "text": "你好"})
     assert r.status_code == 200
@@ -64,7 +64,7 @@ def test_say_lock_blocks_concurrent_say_with_partner_busy(project, monkeypatch):
             assert release.wait(5), "测试超时:主线程没放行"
             return "好的,我们继续。"
 
-    monkeypatch.setattr(server, "get_backend", lambda cfg: BlockingBackend())
+    monkeypatch.setattr("loom.routes.get_backend_for", lambda cfg, purpose="": BlockingBackend())
 
     body = {"root": str(project), "text": "你好"}
     first: dict = {}
@@ -96,7 +96,7 @@ def test_say_lock_blocks_concurrent_say_with_partner_busy(project, monkeypatch):
 
 def test_say_not_blocked_by_write_lock(project, monkeypatch):
     """锁裁量灵魂:织章持有书写锁(write_lock)期间,say 用的是独立轮锁,不受影响。"""
-    monkeypatch.setattr(server, "get_backend", lambda cfg: ScriptedBackend(["还在呢,继续说。"]))
+    monkeypatch.setattr("loom.routes.get_backend_for", lambda cfg, purpose="": ScriptedBackend(["还在呢,继续说。"]))
     lock = usecases.acquire_lock(project)   # 模拟织章正持有书写锁(不是伙伴轮锁)
     try:
         client = TestClient(server.app, base_url="http://127.0.0.1")

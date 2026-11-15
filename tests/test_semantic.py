@@ -27,6 +27,10 @@ def test_ready_reports_gaps_without_lying(monkeypatch, tmp_path):
 def test_embed_and_rank_degrade_quietly(monkeypatch, tmp_path):
     monkeypatch.setenv("LOOM_EMBED_MODEL", str(tmp_path / "nope.onnx"))
     monkeypatch.setenv("LOOM_EMBED_TOKENIZER", str(tmp_path / "nope.json"))
+    # 2026-11-16：语义引擎是**进程级缓存**。本机装了模型时，前面的测试已经把模型载进
+    # _SESS，再改环境变量也不会失效 ⇒ 这条测试变成"看机器上有没有模型"。
+    # 先 reload() 丢掉缓存，让"缺件"这个场景在当前进程里真的成立。
+    S.reload()
     assert S.embed(["a"]) is None
     assert S.rank("问", ["文"]) == []
     assert S.rank("", ["文"]) == []

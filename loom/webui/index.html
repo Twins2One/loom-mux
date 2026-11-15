@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Loom · 织布机</title>
+  <link rel="stylesheet" href="/style.css?v=20261116e" />
+<style>
+/*2026-10-28 作者第2条：带 ?root= 直接开书时，第一帧就不让欢迎页出现。
+ 只隐欢迎页、不动 #app 的显隐 —— #app 仍由 app.js 在书真打开后显示，
+ 打不开时它会把欢迎页放回来（不白屏）。 */
+html[data-direct-open] #welcome { display: none !important; }
+</style>
+</head>
+<body>
+  <!-- 2026-10-21 需求确认去掉「诊断台」入口(连同 diag.html / diag.js 一起删):
+       它是开发期给人肉排障用的,不该出现在给作者的界面上。
+       注意:/api/diagnose/* 是「从正文提炼设定」那条功能,和这个页面无关,保留。 -->
+  <!-- 欢迎页:没有打开项目时显示 -->
+  <div id="welcome" class="welcome">
+    <div class="welcome-card">
+      <div class="welcome-head">
+        <svg class="weave-mark" viewBox="0 0 38 38" fill="none" aria-hidden="true">
+          <path class="warp" d="M7 4v30M14 4v30M21 4v30M28 4v30" stroke-width="1.5"/>
+          <path class="weft" d="M3 12h26M3 20h20M3 28h30" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <div class="logo">Loom</div>
+          <p class="tag">你定方向，十五人头脑风暴，帮你织出故事的网</p>
+        </div>
+      </div>
+
+      <div class="journey-strip" aria-hidden="true">
+        <span class="js-on">① 接入模型</span><i>—</i><span>② 开一本书</span><i>—</i><span>③ 外置大脑</span><i>—</i><span>④ 你的声音</span><i>—</i><span>⑤ 织第一章</span>
+      </div>
+
+      <!-- 第一步:接入模型(连一次全局记住,新书自动继承) -->
+      <div id="connect-block" class="connect-block">
+        <div class="cb-status">
+          <span id="cb-dot" class="cb-dot"></span>
+          <span id="cb-text">正在检查接入状态…</span>
+        </div>
+        <button id="btn-connect" class="primary">接入模型</button>
+      </div>
+
+      <!-- 板块②:我的书架(主体)——新建/导入/样例过的书都在这,点一下继续写 -->
+      <div id="recent-block" class="welcome-block hidden">
+        <h3>我的书架</h3>
+        <ul id="recent-list" class="shelf"></ul>
+      </div>
+
+      <!-- 板块③:开一本书(表单收进弹层,一屏一事) -->
+      <div class="welcome-actions">
+        <button id="btn-new-book" class="primary"><span class="ico" data-ico="plus"></span> 新建一本书</button>
+        <button id="btn-import-book"><span class="ico" data-ico="export"></span> 导入已有的书</button>
+        <button id="btn-import-folder"><span class="ico" data-ico="plus"></span> 导入资料夹</button>
+        <button id="btn-welcome-study">去书房</button>
+      </div>
+      <div id="welcome-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+<script>
+/*2026-10-28作者第2条：从书房点一本书要直接到书内界面。
+ 做法：带 ?root= 时给 html 贴一个属性，由 CSS（文件底部那段）先把欢迎页隐掉。
+ ⚠ 切不可在这里 getElementById("app")：这段脚本在 #app 之前，那时它还没解析出来，
+ 拿到 null 会把欢迎页隐掉、书内又没显示 → 整页白屏（2026-10-28 实测踩到过）。
+ 用 CSS 就不受解析顺序影响。 */
+(function () {
+ try {
+ if (new URLSearchParams(location.search).get("root"))
+ document.documentElement.setAttribute("data-direct-open", "1");
+ } catch (e) { /* 老浏览器没有 URLSearchParams 就照旧 */ }
+})();
+</script>
+ <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <svg class="weave-mark" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path class="warp" d="M4 2v16M8 2v16M12 2v16M16 2v16" stroke-width="1.2"/>
+          <path class="weft" d="M2 7h14M2 13h11" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span id="proj-title">—</span>
+        <!--2026-11-03（作者裁定·模式终身绑定）：写作页左上角只读模式显示。
+            数据来自 GET /api/writing_mode 的 effective；纯文本不可点，无下拉无按钮。-->
+        <span id="wm-readonly-badge" class="wm-readonly-badge hidden" title="这本书开书时选定的 AI 介入程度，终身绑定，不可更改"></span>
+      </div>
+      <span class="topbar-spacer"></span>
+      <span id="kbd-hint" class="kbd-hint" title="命令面板:一切操作都在这">K</span>
+      <button id="btn-write-next" class="mini primary">写下一章</button>
+      <button id="btn-theme" class="ghost icon-btn" title="明暗主题(切换)"></button>
+      <button id="btn-focus" class="ghost icon-btn" title="专注模式" data-ico="focus"></button>
+      <button id="btn-settings" class="ghost icon-btn" title="设置:后端 / 模型 / API Key / 字数" data-ico="skills"></button>
+      <button id="btn-close-proj" class="ghost" title="退出当前这本书,回书房"><span class="ico" data-ico="back"></span> 回书房</button>
+    </header>
+
+    <main class="main">
+      <aside class="sidebar">
+        <div class="side-section">
+          <div class="side-head">
+            <span><span class="ico" data-ico="chapters"></span> 正文</span>
+            <!--2026-11-02（作者裁定②二轮）：FullAuto 快捷切档下拉删除——写作模式只在设置页可看可改。-->
+          </div>
+          <!--2026-11-02（A2）：分卷分章树。
+              2026-11-03（作者五点反馈④）：其下旧正文列表（#chapters）删除——与树重复；
+              元素保留隐藏防别处引用，JS 端清空+hidden。册标题由 #proj-title 顶栏承载。-->
+          <div id="vol-tree" class="vol-tree"><p class="hint">读分卷…</p></div>
+          <ul id="chapters" class="list hidden"></ul>
+        </div>
+
+        <div class="side-section" id="brain-section">
+          <details id="brain-fold" open>
+            <summary class="side-head"><span><span class="ico disclosure" data-ico="chevron"></span> 设定集与分析</span></summary>
+            <ul id="brain" class="list"></ul>
+          </details>
+        </div>
+
+        <div class="side-section" id="threads-section">
+          <ul id="studio-nav" class="list">
+            <li id="nav-threads"><span class="ico" data-ico="history"></span> 脉络 <span class="side-sub">时间轴 · 伏笔 · 专名</span></li>
+            <li id="nav-mirror"><span class="ico" data-ico="fingerprint"></span> 镜台 <span class="side-sub">它有多懂你</span></li>
+          </ul>
+        </div>
+
+        <div class="side-section" id="voice-section">
+          <div class="side-head"><span><span class="ico" data-ico="fingerprint"></span> 你的声音</span></div>
+          <ul id="voice" class="list"></ul>
+          <div class="voice-card" id="fp-card">
+            <div id="fp-source" class="vc-body"></div>
+            <button id="btn-seed" class="mini"><span class="ico" data-ico="seed"></span> 喂样本,让它懂你</button>
+          </div>
+          <div class="voice-card" id="style-card">
+            <div class="vc-body" id="style-source">喂若干篇稿子，蒸出「句级 / 篇级」两层规则，写手与审查都照它。</div>
+            <button id="btn-stylepack" class="mini" style="width:100%;text-align:center"><span class="ico" data-ico="fingerprint"></span> 文风档案</button>
+          </div>
+        </div>
+
+        <!-- 书房伙伴:领航员(独立于「幕后」,它不属作者智库也不属写作引擎) -->
+        <div class="side-section" id="partner-section">
+          <div class="section-header"><span class="ico" data-ico="compass"></span> 书房伙伴</div>
+          <ul id="partner-agents" class="list"></ul>
+        </div>
+
+        <!-- 角色面板:作者智库 + 写作引擎 (作者 2026-10-20, 去掉折叠箭头,iconfont图标) -->
+        <div class="side-section" id="agents-section">
+          <div class="section-header"><span class="ico" data-ico="curtain"></span> 幕后</div>
+
+          <div class="agent-group" id="author-group">
+            <div class="group-header"> 作者智库 <span class="side-sub" id="author-count"></span></div>
+            <ul id="author-agents" class="list"></ul>
+          </div>
+
+          <details class="agent-group" id="engine-group">
+            <summary><span class="ico disclosure" data-ico="chevron"></span> 写作引擎 <span class="side-sub">6 人</span></summary>
+            <ul id="engine-agents" class="list"></ul>
+          </details>
+        </div>
+
+      </aside>
+
+      <section class="editor-pane">
+        <div class="editor-head">
+          <div class="path"><span class="dirty-dot"></span><span id="editor-path">选左边一个文件来看/改</span><button id="btn-rename-file" class="ghost mini hidden" type="button" title="修改这份设定文档的文件名">改名</button></div>
+          <!-- 正文顶栏两排布局(2026-10-21 作者:太乱了,按功能分)
+               第一排 = 看/管这份文件;第二排 = 让 AI 干活。 -->
+          <div class="editor-actions">
+            <div class="ea-row ea-row-file">
+              <button id="btn-search" class="ghost hidden" title="章内搜索" data-ico="search"></button>
+              <button id="btn-preview" class="ghost hidden" title="渲染预览 / 纯文本编辑 切换"><span class="ico" data-ico="edit"></span> 预览</button>
+              <button id="btn-history" class="ghost hidden" title="本章版本历史"><span class="ico" data-ico="history"></span> 历史</button>
+              <button id="btn-sensitive" class="ghost hidden" title="违禁词自检(本地粗筛,只提示不阻断)"><span class="ico" data-ico="warn"></span> 违禁词</button>
+              <button id="btn-migrate-legacy" class="ghost hidden" title="把旧结构的世界观/人物/立项卡复制进设定集（只复制不删除，已存在的同名文件跳过）"><span class="ico" data-ico="export"></span> 搬进设定集</button>
+              <button id="btn-snapshot" class="ghost hidden" title="拍一张全库快照(只读稿子)/ 从某一版恢复(要照名字确认)"><span class="ico" data-ico="history"></span> 快照</button>
+              <button id="btn-save-file" class="primary hidden">保存</button>
+            </div>
+            <div class="ea-row ea-row-ai">
+              <button id="btn-agent-rewrite" class="ghost hidden" title="选一个格子,让对应角色改写它——落点会锁定,你点头才落盘"><span class="ico" data-ico="edit"></span> 让角色改写</button>
+              <button id="btn-outline" class="ghost hidden" title="看/改本章细纲(分镜场景骨头)"><span class="ico" data-ico="outline"></span> 本章细纲</button>
+              <button id="btn-outline-regen" class="ghost hidden" title="重新生成本章细纲(覆盖当前细纲)"><span class="ico" data-ico="redo"></span> 重新生成细纲</button>
+              <button id="btn-debug" class="ghost hidden" title="除虫:对照前几章与状态账本查跨章矛盾(非阻断,只出报告)"><span class="ico" data-ico="warn"></span> 除虫</button>
+              <button id="btn-brain-rewrite" class="ghost hidden" title="选中一段设定,让 AI 按指令改写(候选出来你确认才落盘)"><span class="ico" data-ico="rewrite"></span> 改写选中</button>
+              <button id="btn-brain-continue" class="ghost hidden" title="让 AI 顺着这份设定往下续写一节(候选出来你确认才落盘)"><span class="ico" data-ico="edit"></span> AI 续写</button>
+              <button id="btn-rewrite" class="hidden"><span class="ico" data-ico="rewrite"></span> 重写选中</button>
+              <button id="btn-learn" class="hidden"><span class="ico" data-ico="learn"></span> 学这章的手改(learn)</button>
+              <button id="btn-card-expand" class="ghost hidden" title="按卷纲起止,一次铺 50 章章纲(会调一次模型)"><span class="ico" data-ico="outline"></span> 铺下一块(50章)</button>
+        <button id="btn-vol-summary" class="ghost hidden" title="拿各卷已抽出的章纲,给每卷想一个卷名和一句主线;人写过的字段不动,先报账你点头才跑"><span class="ico" data-ico="outline"></span> 归纳卷纲</button>
+        <button id="btn-book-summary" class="ghost hidden" title="把各卷的名字和主线合成一段全书主线草稿,落在全书大纲里一个带「待你确认」的小节;只换那一节,别处不动"><span class="ico" data-ico="outline"></span> 归纳全书大纲</button>
+  <button id="btn-import-half" class="ghost hidden" title="拿一份写到一半的 TXT,倒推出已有章纲(先报要花几次调用,你点头才跑)"><span class="ico" data-ico="outline"></span> 导入半截稿</button>
+  <button id="pending-banner" class="ghost hidden" type="button" title="确认后只清这条提醒,不修改任何章纲内容"></button>
+              <button id="btn-brain-copy" class="ghost hidden" title="从书架上另一本书抄一份这个东西过来(只抄这一个文件)"><span class="ico" data-ico="export"></span> 从另一本书复制</button>
+              <button id="btn-knowledge" class="ghost hidden" title="查资料:问一个与作品相关的知识性问题 → 出提案 → 你点「写进知识库」才写进 外置大脑/知识/"><span class="ico" data-ico="learn"></span> 查资料</button>
+              <button id="btn-align" class="ghost hidden" title="大纲复核:逐章对照「章纲要什么 / 正文写了什么」→ 只说符合或偏离,改哪边由你定"><span class="ico" data-ico="check"></span> 大纲复核</button>
+              <button id="btn-style" class="ghost hidden" title="文风档案:灌几篇范文 → 蒸成规则 → 指定用哪个、用多强(范文不进 learn)"><span class="ico" data-ico="learn"></span> 文风档案</button>
+            </div>
+          </div>
+        </div>
+        <!-- 联动提示条(丙·固定工作流 作者 2026-10-20):平时 hidden,有提示才占一行 -->
+        <div id="chain-bar" class="chain-bar hidden"></div>
+        <div id="search-bar" class="search-bar">
+          <input id="search-input" type="text" placeholder="在本章里查找…" />
+          <span id="search-count" class="sb-count"></span>
+          <button id="search-prev" class="mini" title="上一个" data-ico="arrowUp"></button>
+          <button id="search-next" class="mini" title="下一个" data-ico="arrowDown"></button>
+          <button id="search-close" class="ghost mini" title="关闭搜索" data-ico="close"></button>
+        </div>
+        <div id="nav-center" class="nav-center hidden">
+          <div class="nav-center-inner">
+            <div class="nav-center-head">
+              <span id="nav-center-ava"></span>
+              <div class="nav-center-title">
+                <div class="nav-center-name">领航员 · 陪你把地基打完</div>
+                <div class="nav-center-sub" id="nav-center-sub"></div>
+              </div>
+            </div>
+            <div id="nav-center-strip" class="nav-strip"></div>
+            <div id="nav-center-card" class="journey-card nav-host"></div>
+            <div class="nav-center-foot">
+              <button id="nav-panel" class="ghost" title="叫几位同事一起看这件事——各自分析、并发跑,费用是人数倍">议事</button>
+              <button id="nav-browse" class="ghost">先自己逛逛</button>
+            </div>
+          </div>
+        </div>
+        <div class="editor-scroll">
+          <textarea id="editor" spellcheck="false" placeholder=""></textarea>
+          <div id="preview" class="md-preview hidden"></div>
+          <!--2026-11-02（视觉集中检查）：没选文件时预览区是一大块纯黑空态（作者截图指认"明显不美观"）。
+              给一个安静的原位提示，选中文件后由 openFile 隐藏。 -->
+          <div id="editor-empty" class="editor-empty">选左边一个文件来看/改</div>
+        </div>
+        <div id="editor-status" class="editor-status">
+          <span id="wordcount" class="wordcount"></span>
+          <div id="progress" class="progress hidden"><div id="progress-bar" class="progress-bar"></div></div>
+          <span id="status-note" class="status-note"></span>
+        </div>
+        <!-- 终稿目标字数:点字数条上的「目标 X」就地改(2026-10-20 从设置页搬过来) -->
+        <div id="target-pop" class="target-pop hidden">
+          <label class="field-label" for="chapter-chars">终稿目标字数</label>
+          <div class="target-pop-row">
+            <input id="chapter-chars" type="number" min="200" step="100" />
+            <button id="target-save" class="mini primary">保存</button>
+            <button id="target-cancel" class="mini">取消</button>
+          </div>
+          <p class="hint">正文按这个数的 ±25% 算达标;进度条与「目标」都以它为准。</p>
+        </div>
+      </section>
+    </main>
+    <button id="focus-exit" class="ghost focus-exit" title="退出专注 Esc"><span class="ico" data-ico="focusExit"></span> 退出专注</button>
+  </div>
+
+  <!-- 写章节时的实时流水线面板 -->
+  <div id="run-overlay" class="overlay hidden">
+    <div class="run-card run-overlay-card">
+      <h3 id="run-title">正在写…</h3>
+      <div id="agent-pills" class="pills tl-list"></div>
+      <div id="run-log" class="run-log"></div>
+      <div id="run-stream" class="run-stream"></div>
+      <div class="run-actions">
+        <button id="run-stop" class="ghost hidden">停</button>
+        <button id="run-minimize" class="ghost">收起,后台织</button>
+        <button id="run-force" class="danger hidden">覆盖重写</button>
+        <button id="run-close" class="ghost hidden">完成,去看正文</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- seed 弹层 -->
+  <div id="seed-overlay" class="overlay hidden">
+    <div class="run-card">
+      <h3>让它懂你的嗓音(seed)</h3>
+      <div class="seg">
+        <button id="seed-tab-sample" class="seg-btn on">喂一段你写的字</button>
+        <button id="seed-tab-reference" class="seg-btn">喂几篇你自己写的</button>
+        <button id="seed-tab-inherit" class="seg-btn">继承另一本书的指纹</button>
+      </div>
+      <div id="seed-pane-sample">
+        <p class="hint">它会从你的样本里提炼"写作指纹",之后写手照着它的味儿写。</p>
+        <textarea id="seed-text" class="seed-text" placeholder="贴 2-3 段你平时写的字…越像你越好"></textarea>
+      </div>
+      <div id="seed-pane-reference" class="hidden">
+        <p class="hint">贴 2-3 篇<b>你自己写的</b>文字(不同章节、不同时期都行)。它只提炼句级写法和大段组织习惯,
+          <b>不搬原句、不搬专名</b>。
+          <br>→ <b>别人的文章(范文 / 喜欢的作者)请到侧边栏的「文风档案」</b>,那边才是蒸别人文风的地方。</p>
+        <textarea id="seed-ref-text" class="seed-text" placeholder="贴几篇你自己写的,篇与篇之间空一行…"></textarea>
+      </div>
+      <div id="seed-pane-inherit" class="hidden">
+        <p class="hint">从你另一本书的写作指纹起步(继承后两本各自独立演进,互不影响)。</p>
+        <label class="hint">那本书的 <b>写作指纹.md</b> 完整路径</label>
+        <input id="seed-inherit-path" type="text" placeholder="/Users/你/Desktop/另一本书/外置大脑/写作指纹.md" />
+      </div>
+      <div class="row-end">
+        <button id="seed-cancel" class="ghost">取消</button>
+        <button id="seed-go" class="primary">提炼指纹</button>
+      </div>
+      <div id="seed-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- learn 结果:看清这次学到了什么,可一键撤销 -->
+  <div id="learn-overlay" class="overlay hidden">
+    <div class="run-card">
+      <h3><span id="learn-stamp" class="seal-stamp" aria-hidden="true">学</span>这次 learn 学到了什么</h3>
+      <div id="learn-summary" class="learn-sum"></div>
+      <p class="hint">下面是写作指纹这次的变化:<b>朱底=新学进的</b>(像印上了你的痕迹);<b>划线=拆掉的</b>(这条原来在你的指纹里、这次被抹掉了)。若有"形对神错",或删掉的是你不想丢的嗓音,点「撤销这次 learn」一键还原。</p>
+      <div id="learn-changes" class="learn-changes"></div>
+      <div id="learn-recap-wrap" class="hidden">
+        <div class="sub-head"><span class="ico" data-ico="pin"></span> 已补进卡章纲的写后摘要</div>
+        <div id="learn-recap" class="recap-block"></div>
+      </div>
+      <div id="learn-supp-wrap" class="hidden">
+        <div class="sub-head"><span class="ico" data-ico="brain"></span> 已随章补进外置大脑(追加在文件末尾「AI 补充」区,可改可删)</div>
+        <div id="learn-supp" class="recap-block"></div>
+      </div>
+      <div class="row-end">
+        <button id="learn-revert" class="danger">撤销这次 learn</button>
+        <button id="learn-keep" class="primary">保留,去看指纹</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 行内改写面板:锚在选区/行下方就地展开(中央弹层已退役)。chapter/brain 两用,元素 id 沿用旧弹层 -->
+  <div id="rewrite-inline" class="rewrite-inline hidden">
+    <div id="rewrite-src" class="rewrite-src"></div>
+    <input id="rewrite-instruction" type="text" />
+    <div id="rewrite-result" class="rewrite-result hidden"></div>
+    <div id="rewrite-error" class="error"></div>
+    <div class="row-end">
+      <button id="rewrite-cancel" class="ghost">取消</button>
+      <button id="rewrite-again" class="ghost hidden">再来一个</button>
+      <button id="rewrite-go" class="primary">重写</button>
+      <button id="rewrite-apply" class="primary hidden">用这个</button>
+    </div>
+  </div>
+
+  <button id="line-edit-btn" class="line-edit-btn" title="改这一行:告诉 AI 怎么改">改</button>
+
+  <!-- 设置:后端配置从顶栏收进来,写作界面只剩纸(工具不抢戏) -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>设置</h3>
+      <p class="hint">后端与写作偏好。配置存在这本书的项目文件夹里;点「写章」时也会自动保存这里的改动。</p>
+      <label class="field-label">供应商</label>
+      <select id="provider"></select>
+      <div id="key-hint" class="hint"></div>
+      <label class="field-label">模型</label>
+      <div class="field-row">
+        <select id="model" class="model" title="选择模型(下拉选;第三方供应商点「拉取可用模型」拉真实列表)"></select>
+        <button id="btn-fetch-models" class="ghost hidden" title="拉取这个供应商当前真实可用的模型列表(只读、不耗 token)"><span class="ico" data-ico="focus"></span> 拉取可用模型</button>
+      </div>
+      <input id="model-custom" type="text" class="hidden" autocomplete="off" placeholder="手动输入模型名" title="列表里没有想要的型号时,手动输入一个模型名" />
+      <input id="base-url" type="text" class="base-url hidden" title="第三方 OpenAI 兼容供应商的接口地址 base_url" placeholder="base_url(自定义供应商)" />
+      <label class="field-label" for="context-len">单会话上下文上限（token）</label>
+      <input id="context-len" type="text" inputmode="numeric" autocomplete="off"
+             placeholder="128000" />
+      <div id="context-len-hint" class="hint"></div>
+      <label class="field-label" id="api-key-label">API Key</label>
+      <input id="api-key" type="password" title="DeepSeek / 自定义供应商需填(写进项目 .env);Claude / Codex 复用各自客户端的登录,不用填 key" />
+      <div class="field-row settings-status-row">
+        <button id="btn-probe" class="ghost hidden" title="检测 Claude / Codex 客户端是否就绪"><span class="ico" data-ico="focus"></span> 检测连接</button>
+        <span id="backend-status" class="backend-status"></span>
+      </div>
+      <!-- 2026-10-21 需求确认:默认折叠,但留个显眼标志,暗示"这里还有玄机"。 -->
+      <!--2026-11-03（作者裁定·模式终身绑定）：设置页写作模式组删除——写作模式只在
+          开书时选定，此书终身绑定；写作页左上角有只读 badge 显示（#wm-readonly-badge）。-->
+      <details id="route-fold" class="route-fold">
+        <summary>
+          <span class="rf-title">按用途分模型</span>
+          <span class="rf-badge">能给单格单独换模型</span>
+          <span class="rf-chev">▸</span>
+        </summary>
+        <p class="hint">留空 = 跟随默认。</p>
+        <div class="conc-row">
+          <label class="field-label" for="max-concurrency">并发上限</label>
+          <select id="max-concurrency" title="所有会调用模型的动作共用一个上限(2-8)。改完立刻存,不用点保存。">
+            <option value="2">2 · 两个同时(默认)</option>
+            <option value="3">3 · 三个同时</option>
+            <option value="4">4 · 四个同时</option>
+            <option value="5">5 · 五个同时(本机单卡通常更慢)</option>
+            <option value="6">6 · 六个同时</option>
+            <option value="7">7 · 七个同时</option>
+            <option value="8">8 · 八个同时(主要给托管 API)</option>
+          </select>
+          <span id="conc-hint" class="hint conc-hint"></span>
+        </div>
+        <div id="route-slots" class="route-slots">读槽表…</div>
+        <div class="field-row">
+          <button id="btn-route-refresh" class="mini" title="重新读一次这本书的槽表">刷新槽表</button>
+        </div>
+      </details>
+      <!-- F2：记忆库栏默认折叠，展开才取数（面板由 study/core.js 的 memoryPanel 同源构建）。 -->
+      <div id="mem-panel-host"></div>
+      <label class="field-label">本书数据(纯本地)</label>
+      <div class="data-grid">
+        <button id="btn-export" class="mini" title="TXT / Markdown / 打印成 PDF,可整本、按卷、一章一份"><span class="ico" data-ico="export"></span> 导出…</button>
+        <button id="btn-backup" class="mini"><span class="ico" data-ico="backup"></span> 备份整本 zip</button>
+        <button id="btn-trash" class="mini" title="软删的章节在这里,可以挪回去"><span class="ico" data-ico="trash"></span> 回收站</button>
+        <button id="btn-facts" class="mini" title="伏笔 / 剧情线 / 时间线 / 知情矩阵;AI 抽的只是提案,确认后才入账"><span class="ico" data-ico="brain"></span> 资料账本</button>
+        <button id="btn-arb" class="mini" title="材料互相矛盾时按 设定 > 章纲 > 正文;有一处例外裁定后,其余逐处请示,不外推"><span class="ico" data-ico="cross"></span> 冲突与裁定</button>
+        <button id="btn-ents" class="mini" title="正名 / 别名 / 改名(改名先预览,照着旧名打一遍才真改)"><span class="ico" data-ico="brain"></span> 实体表</button>
+        <button id="btn-chdiag" class="mini" title="这一章的运行卡 / 影响面 / 修复方案 / 审稿模板 / 写租约"><span class="ico" data-ico="check"></span> 本章诊断</button>
+      </div>
+      <div class="row-end">
+        <button id="settings-close" class="ghost">关闭</button>
+        <button id="btn-save-backend" class="primary">保存</button>
+      </div>
+      <!-- 环境自检:2026-10-21 作者嫌它占版面 ⇒ 从「关闭/保存」那一排挪到版本号旁边,做成小链接。
+           功能没删(它是唯一会告诉你"这本书到底缺什么"的地方),只是不占地方了。 -->
+      <div id="app-version" class="app-version" title="当前 Loom 版本">
+        <span id="app-version-text"></span>
+        <a id="btn-doctor" class="doc-link" href="javascript:void 0"
+           title="环境自检:只读。查后端配置 / 六个角色文件 / 设定集齐不齐">环境自检</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建一本书(从欢迎页收进弹层:一屏一事) -->
+  <div id="create-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>新建一本书</h3>
+      <label class="field-label">书名</label>
+      <input id="new-name" type="text" placeholder="我的小说" maxlength="50" title="书名最长 50 字（太长书架卡片放不下）" />
+      <label class="field-label">放在哪个文件夹</label>
+      <div class="field-row">
+        <input id="new-parent" type="text" value="~/Desktop" list="new-parent-dirs"
+               placeholder="点右边「浏览…」选,或直接粘贴路径" />
+        <button id="new-parent-pick" class="ghost" title="选一个文件夹;浏览器里会改成填候选路径">浏览…</button>
+      </div>
+      <datalist id="new-parent-dirs"></datalist>
+      <label class="field-label">题材(可选,只拷一份对应速查给设定师)</label>
+      <select id="new-genre"><option value="">不选题材</option></select>
+      <label class="field-label">一句话设定(可选,AI 铺设定底稿按它起草)</label>
+      <textarea id="new-idea" class="draft-idea" placeholder="例:重生成崇祯,开局砍魏忠贤,拯救大明。留空=按书名+题材发挥。"></textarea>
+      <!--2026-11-02（作者裁定②）：老 stop_after 五站下拉删除，换三档写作模式（与设置页同口径）。
+          选中的值在创建成功后写进这本书的 loom.toml（writing_mode 顶层键，走 /api/writing_mode PUT）。-->
+      <label class="field-label">AI 介入程度(选定后此书固定)</label>
+      <select id="new-writing-mode" title="FullAuto=织完整章；辅助=织到细纲停，正文你自己写；教学=AI 不代笔；剧作=织到分镜剧本停。选定后终身绑定,不可更改">
+        <option value="FullAuto" selected>FullAuto · 织完整章(默认)</option>
+        <option value="辅助">辅助 · 织到细纲停,正文我自己写</option>
+        <option value="教学">教学 · AI 不代笔正文</option>
+        <option value="剧作">剧作 · 织到分镜剧本停(责编/润色不下场)</option>
+      </select>
+      <div class="row-end">
+        <button id="create-cancel" class="ghost">取消</button>
+        <button id="btn-create" class="primary">新建</button>
+      </div>
+      <div id="create-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 导入已有的书(只需一次,之后在书架点选) -->
+  <div id="import-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>导入已有的书</h3>
+      <p class="hint">选中那本书的项目文件夹(里面有 loom.toml)。只需导入这一次,以后它就在书架里。</p>
+      <div class="field-row">
+        <input id="open-path" type="text" placeholder="/Users/你/Desktop/我的小说" />
+        <button id="open-path-pick" class="ghost hidden">浏览…</button>
+      </div>
+      <div class="row-end">
+        <button id="import-cancel" class="ghost">取消</button>
+        <button id="btn-open" class="primary">导入并打开</button>
+      </div>
+      <div id="import-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 导入资料夹:把已有设定/大纲 md 机械接成一本新书 -->
+  <div id="folder-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>导入资料夹 · 接成一本新书</h3>
+      <p class="hint">选一个装着你已有设定/大纲/章纲、或已写好的小说(txt/md)的文件夹,Loom 按文件名归位、原样接进来——不改你一个字。</p>
+      <div class="field-row">
+        <input id="folder-path" type="text" placeholder="/Users/你/我的小说设定" />
+        <button id="folder-pick" class="ghost hidden">浏览…</button>
+      </div>
+      <div class="row-end">
+        <button id="folder-cancel" class="ghost">取消</button>
+        <button id="folder-scan" class="primary">扫描</button>
+      </div>
+      <div id="folder-confirm" class="hidden">
+        <label class="field-label">书名</label>
+        <input id="folder-name" type="text" />
+        <div id="folder-routed" class="folder-routed"></div>
+        <div class="row-end">
+          <button id="folder-commit" class="primary">导入并打开</button>
+        </div>
+      </div>
+      <div id="folder-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 从正文提炼设定:诊断确认屏(一屏勾选/改写候选,commit 落盘) -->
+  <!--2026-11-03（作者五点反馈①）：目录浏览浮窗——浏览器模式「浏览…」走这里
+      （POST /api/fs/browse 导航:常用位/子目录/上级），选中回填原输入框。
+      WebView2 桌面窗口仍走系统选择框（pickFolderInto 原路径不动）。 -->
+  <div id="browse-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>选一个文件夹</h3>
+      <p class="hint" id="browse-current">读取中…</p>
+      <div id="browse-list" class="browse-list"></div>
+      <div class="row-end">
+        <button id="browse-up" class="ghost" type="button">上一级</button>
+        <button id="browse-cancel" class="ghost" type="button">取消</button>
+        <button id="browse-pick" class="primary" type="button">选这里</button>
+      </div>
+      <div id="browse-error" class="error"></div>
+    </div>
+  </div>
+
+  <div id="diagnose-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>从正文提炼设定</h3>
+      <p class="hint">这些是 Loom 从你正文里提炼的设定候选(带出处)。勾选要接受的、可改;不对的取消勾选。立项要你自己填,这里不提炼。</p>
+      <div id="diag-body"></div>
+      <label class="field-label">哪个是主角?(填名字,落成「主角·名字」卡)</label>
+      <input id="diag-protagonist" type="text" placeholder="如:沈砚" />
+      <div class="row-end">
+        <button id="diag-cancel" class="ghost">取消</button>
+        <button id="diag-commit" class="primary">确认预填</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 接入模型(用户级默认后端:连一次全局记住,新建的每本书自动继承) -->
+  <div id="connect-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>接入模型</h3>
+      <p class="hint">填一次即成默认后端,新建的书自动继承;key 只存本机。</p>
+      <label class="field-label">供应商</label>
+      <select id="cn-provider"></select>
+      <div id="cn-key-hint" class="hint"></div>
+      <label class="field-label" id="cn-key-label">API Key</label>
+      <input id="cn-api-key" type="password" title="国产直连供应商需填;Claude / Codex 复用本机客户端登录,不用填 key" />
+      <input id="cn-base-url" type="text" class="base-url hidden" placeholder="base_url(自定义供应商)" />
+      <label class="field-label">模型</label>
+      <div class="field-row">
+        <select id="cn-model" class="model"></select>
+        <button id="cn-fetch-models" class="ghost hidden"><span class="ico" data-ico="focus"></span> 拉取可用模型</button>
+      </div>
+      <input id="cn-model-custom" type="text" class="hidden" autocomplete="off" placeholder="手动输入模型名" />
+      <label class="field-label" for="cn-context-len">单会话上下文上限（token）</label>
+      <input id="cn-context-len" type="text" inputmode="numeric" autocomplete="off"
+             placeholder="留空 = 默认 128000" title="作为新书与书房角色的默认窗口" />
+      <div id="cn-context-len-hint" class="hint"></div>
+      <div class="field-row settings-status-row">
+        <button id="cn-probe" class="ghost hidden"><span class="ico" data-ico="focus"></span> 检测连接</button>
+        <span id="cn-status" class="backend-status"></span>
+      </div>
+      <div class="row-end">
+        <button id="cn-cancel" class="ghost">以后再说</button>
+        <button id="cn-save" class="primary">接入,记住它</button>
+      </div>
+      <div id="cn-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 脉络:全书的三个只读投影(时间轴/伏笔账本/专名册) -->
+  <div id="studio-overlay" class="overlay hidden">
+    <div class="run-card studio-card">
+      <h3>脉络</h3>
+      <div class="seg">
+        <button id="studio-tab-timeline" class="seg-btn on">时间轴</button>
+        <button id="studio-tab-foreshadow" class="seg-btn">伏笔账本</button>
+        <button id="studio-tab-names" class="seg-btn">专名册</button>
+        <button id="studio-tab-statebook" class="seg-btn">账本</button>
+      </div>
+      <div id="studio-body" class="studio-body"></div>
+      <div class="row-end">
+        <button id="studio-close" class="primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 镜台:它有多懂你。手改量双曲线 + 写作指纹 + 人格增补,纯只读投影 -->
+  <div id="mirror-overlay" class="overlay hidden">
+    <div class="run-card studio-card">
+      <h3>镜台</h3>
+      <div id="mirror-body" class="studio-body"></div>
+      <div class="row-end">
+        <button id="mirror-close" class="primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 除虫报告:非阻断,只报告;「按建议改」联动行内改写面板 -->
+  <div id="debug-overlay" class="overlay hidden">
+    <div class="run-card studio-card">
+      <h3 id="debug-title">除虫报告</h3>
+      <div id="debug-body" class="studio-body"></div>
+      <div class="row-end">
+        <button id="debug-close" class="primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- doctor 自检面板 -->
+  <div id="doctor-overlay" class="overlay hidden">
+    <div class="run-card">
+      <h3>环境自检</h3>
+      <div id="doctor-list" class="doctor-list"></div>
+      <div class="row-end">
+        <button id="doctor-close" class="primary">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用引导:skills「这是什么」、外置大脑空/未懂你时的 onboarding(不贴原文) -->
+  <div id="guide-overlay" class="overlay hidden">
+    <div class="run-card guide-card">
+      <h3 id="guide-title"></h3>
+      <div id="guide-body" class="guide-body"></div>
+      <div class="row-end">
+        <button id="guide-ghost" class="ghost"></button>
+        <button id="guide-primary" class="primary"></button>
+      </div>
+    </div>
+  </div>
+
+  <button id="nav-ball" class="nav-ball hidden" title="领航员">
+    <span id="nav-ball-ava"></span>
+    <span id="nav-dot" class="nav-dot hidden"></span>
+  </button>
+  <div id="nav-popover" class="nav-popover hidden">
+    <div class="nav-pop-head">
+      <button id="nav-copy" class="ghost nav-head-btn" title="复制领航员这段文字">复制</button>
+      <button id="nav-side-toggle" class="ghost nav-head-btn" title="展开成右侧栏,可拖宽">⇥ 展开</button>
+    </div>
+    <div id="nav-pop-list" class="nav-pop-list"></div>
+    <div id="nav-pop-card" class="journey-card nav-host"></div>
+  </div>
+
+  <!-- 本章版本历史:覆盖前自动留快照,可预览 + 一键回滚 -->
+  <div id="history-overlay" class="overlay hidden">
+    <div class="run-card">
+      <h3 id="history-title">版本历史</h3>
+      <p class="hint">每次保存/AI 重写覆盖前,都会先把上一版存一份(最多 30 份)。回滚前会把当前版本也存一份,随时能再回来。</p>
+      <div id="history-list" class="history-list"></div>
+      <div class="row-end">
+        <button id="history-close" class="primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R26 导入半截稿:一块面板,不再是三次浏览器弹窗 -->
+  <div id="half-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>导入半截稿(从 TXT 逆推章纲)</h3>
+      <p class="hint">选一本写到一半的稿子(.txt / .md)。先切章给你看切得对不对,再报要花几次调用;
+        点「确实开始」才花钱。正文会逐字落进书里;书里若已有同名章文件,那些章跳过不落(绝不覆盖你写的),其余的照落。</p>
+      <div class="field-row">
+        <input id="half-path" type="text" placeholder="C:\...\我的半截稿.txt" />
+      </div>
+      <div class="field-row">
+        <label>抽法
+          <select id="half-mode">
+            <option value="只抽最近">只抽最近 N 章(最省)</option>
+            <option value="抽样">全书抽样(隔几章抽一章)</option>
+            <option value="全部">全书全量(最贵)</option>
+          </select>
+        </label>
+        <label>N <input id="half-recent" type="number" value="30" min="1" max="500" /></label>
+        <label>单次上限 <input id="half-max" type="number" value="200" min="1" max="2000" /> 章</label>
+      </div>
+      <div id="half-preview" class="hint">还没切章。先点「先看看(不花钱)」。</div>
+      <div class="row-end">
+        <button id="half-do-preview" class="ghost">先看看(不花钱)</button>
+        <button id="half-stop" class="ghost hidden">停</button>
+        <button id="half-run" class="primary" disabled>确实开始(会花钱)</button>
+        <button id="half-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R10 待合入:磁盘被别处改过时,三栏并排让你自己合 -->
+  <div id="merge-overlay" class="overlay hidden">
+    <div class="run-card merge-card">
+      <h3>这份文件在别处被改过</h3>
+      <p class="hint">左边是磁盘上现在的版本,中间是你编辑器里的这一版,右边是要落盘的结果。
+        右边默认放的是你这一版:<strong>盘上那版不会自动丢</strong>,要保留它的段落,从左栏复制过去。保存后会留一份旧版,正文以外的文件也能在「历史」里退回。</p>
+      <div class="merge-cols">
+        <div class="merge-col">
+          <div class="merge-head">磁盘上现在这样 <span id="merge-disk-meta" class="hint"></span></div>
+          <textarea id="merge-disk" class="merge-text" readonly></textarea>
+        </div>
+        <div class="merge-col">
+          <div class="merge-head">我这一版 <span id="merge-mine-meta" class="hint"></span></div>
+          <textarea id="merge-mine" class="merge-text" readonly></textarea>
+        </div>
+        <div class="merge-col">
+          <div class="merge-head">合并结果(要落盘的) <span id="merge-out-meta" class="hint"></span></div>
+          <textarea id="merge-out" class="merge-text"></textarea>
+        </div>
+      </div>
+      <div class="field-row">
+        <button id="merge-take-disk" class="mini" title="把右栏换成磁盘版本(等于放弃我这版)">右栏 = 磁盘版本</button>
+        <button id="merge-take-mine" class="mini" title="把右栏换回我这一版">右栏 = 我这一版</button>
+        <button id="merge-take-disk-tail" class="mini" title="把我的加在磁盘版本后面(最省事的保两端)">磁盘版本 + 我的接在后面</button>
+      </div>
+      <div class="row-end">
+        <button id="merge-close" class="ghost">先不合,关掉</button>
+        <button id="merge-save" class="primary">保存右栏</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R27 查资料(原「知识顾问」):提问 → 提案 → 勾选入账(作者 2026-10-19 裁定:不自动进 canon) -->
+  <div id="know-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>查资料</h3>
+      <p class="hint">问一个与作品相关的知识性问题(时代、器物、职业、制度、地理、技术可行性、设定自洽…)。
+        顾问会先摆结论再摆证据,证据分「书内 / 自附 / 联网」三类;
+        <strong>它只出提案,写不写进 <code>外置大脑/知识/</code> 要你点「写进知识库」并再确认一次</strong>
+  —— 不让 AI 的判断悄悄变成书里的设定。</p>
+      <label class="field">问题
+        <textarea id="know-q" rows="2" placeholder="比如:唐朝长安城里一个从七品官能养活几口人?这跟本作第 3 章写的住处搭不搭?"></textarea>
+      </label>
+      <label class="field">自己贴的资料(可选)
+        <textarea id="know-attached" rows="3" placeholder="从别处查来的段落、书摘、你自己的笔记 —— 原样贴进来"></textarea>
+      </label>
+      <label class="field">联网检索结果(可选,记得带网址)
+        <textarea id="know-web" rows="3" placeholder="把搜索结果贴在这里;没有网址的内容会被当成「不可靠」"></textarea>
+      </label>
+      <div class="field-row">
+        <label>搜一句 <input id="web-q" type="text" placeholder="比如:唐代从七品官俸禄" /></label>
+        <button id="web-search" class="mini" title="问你在 loom.toml 里配的那个搜索服务;没配会明说没配">搜一下(联网)</button>
+      </div>
+      <div class="field-row">
+        <label>网页 <input id="web-url" type="text" placeholder="https://…(抓正文,内网不碰)" /></label>
+        <button id="web-fetch" class="mini">抓这一页</button>
+      </div>
+      <div id="web-status" class="hint">搜索服务还没查。</div>
+      <div class="field-row">
+        <label class="check"><input id="know-inside" type="checkbox" checked /> 带上当前打开的文件当「书内材料」</label>
+        <label class="check" title="先让「长上下文检索」那一槽从章目录里挑出相关章,读它们的正文再来回答 —— 多一次模型调用"><input id="know-evidence" type="checkbox" /> 跨章取证(多一次调用)</label>
+        <label class="check" title="让顾问自己判断要不要查网页,并抓 1–3 页正文进来(至少两次调用;抓到的内容标 [联网]、注明未经核实)"><input id="know-browse" type="checkbox" /> 让顾问自己上网抓页</label>
+        <button id="know-go" class="primary">问一下(会花钱)</button>
+        <button id="know-close" class="ghost">关闭</button>
+      </div>
+      <div id="know-out" class="know-out" aria-live="polite"></div>
+      <div class="field-row">
+        <button id="know-accept" class="primary hidden">写进知识库(我确认)</button>
+        <button id="know-refresh" class="mini">刷新已有条目</button>
+      </div>
+      <div id="know-list" class="know-list">还没打开。</div>
+    </div>
+  </div>
+
+  <!-- 裁定 3 · 领航员:大纲与正文符合度复核(只出意见,改哪边由人定) -->
+  <div id="align-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>大纲复核</h3>
+      <p class="hint">逐章对照「章纲要什么」和「正文实际写了什么」,给一句「符合 / 偏离 + 建议改哪边」。
+        <strong>它只出意见</strong>:改章纲还是改正文由你逐条定;判据是「设定 &gt; 章纲 &gt; 正文」,
+        你一旦另裁,其余冲突项逐处请示。</p>
+      <div class="field-row">
+        <label>从第 <input id="align-chapter" type="number" min="1" value="1" /> 章算起(自动凑成 50 章一块)</label>
+        <button id="align-go" class="primary">复核(会花钱)</button>
+        <button id="align-close" class="ghost">关闭</button>
+      </div>
+      <div id="align-out" class="know-out" aria-live="polite"></div>
+      <div class="field-row">
+        <button id="align-accept" class="primary hidden">存成文档(我确认)</button>
+        <button id="align-refresh" class="mini">刷新已有复核</button>
+      </div>
+      <div id="align-list" class="know-list">还没打开。</div>
+    </div>
+  </div>
+
+  <!-- R15 文风档案:范文 → 蒸馏 → 指定强度 -->
+  <div id="style-overlay" class="overlay hidden">
+    <div class="run-card settings-card style-card">
+      <h3>文风档案</h3>
+      <p class="hint">这里放<b>别人的文章</b>(范文 / 喜欢的作者):每篇各自蒸出一份规则,蒸过的在下面能看到。
+        你自己写的字请走侧边栏的「喂样本」——那边炼的是《写作指纹》,两件事不要混。</p>
+
+      <label class="field-label">档案 <span class="style-sum">(可以有好几套,各自蒸各自的)</span></label>
+      <div class="field-row">
+        <select id="style-lib" title="切换到另一套文风档案"></select>
+        <input id="style-lib-new" type="text" placeholder="新建一套,比如:鲁迅风" />
+        <button id="style-lib-add" class="mini" title="名字不重复就新建;已存在就直接切过去">新建 / 切换</button>
+      </div>
+
+      <label class="field-label">① 粘贴一段(短文档也行)</label>
+      <div class="field-row">
+        <input id="style-title" type="text" placeholder="文档标题(用来区分,比如:鲁迅·故乡)" />
+        <button id="style-add" class="ghost">加进文档库</button>
+      </div>
+      <textarea id="style-text" rows="3" placeholder="把一段文字贴在这里(原样保留,不做任何清洗)"></textarea>
+
+      <label class="field-label">② 从文件导入</label>
+      <div class="field-row">
+        <button id="style-browse" class="ghost hidden">浏览…</button>
+        <input id="style-paths" type="text" placeholder="或直接填文件路径,多个用 ; 隔开(.md / .txt)" />
+        <button id="style-import" class="mini">导入</button>
+      </div>
+      <p id="style-import-note" class="hint style-note"></p>
+
+      <label class="field-label">③ 文档库 <span id="style-lib-sum" class="style-sum"></span></label>
+      <div class="field-row">
+        <button id="style-refresh" class="mini">刷新</button>
+        <label class="check"><input id="style-sel-all" type="checkbox" /> 全选</label>
+        <button id="style-del" class="mini" disabled title="删掉原文与该篇的蒸馏产物;合并档案会自动重算">删除选中</button>
+      </div>
+      <div id="style-list" class="style-list">读列表…</div>
+
+      <label class="field-label">④ 蒸馏 <span class="style-sum">细致度=蒸的时候要多少条;注入量=写作时塞多少字进提示词</span></label>
+      <div class="field-row style-knob">
+        <label class="sk-label" for="style-detail">细致度</label>
+        <select id="style-detail" class="sk-sel">
+          <option value="粗">粗(每层 3 条)</option>
+          <option value="中" selected>中(每层 4~6 条)</option>
+          <option value="细">细(每层 6~9 条)</option>
+        </select>
+        <label class="sk-label" for="style-strength">注入量</label>
+        <select id="style-strength" class="sk-sel">
+          <option value="弱">弱(≈900 字)</option>
+          <option value="中" selected>中(≈3200 字)</option>
+          <option value="强">强(≈9000 字)</option>
+        </select>
+      </div>
+      <div class="field-row style-actions">
+        <button id="style-distill" class="primary" disabled>蒸馏选中的 0 篇(0 次调用)</button>
+        <button id="style-use" class="mini" title="把当前文档库设为出稿时用的那一份,并记下注入量">用这份</button>
+        <span id="style-using" class="hint style-use-note"></span>
+      </div>
+      <div id="style-error" class="error"></div>
+      <div class="row-end">
+        <button id="style-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R18 快照:拍一张 / 看列表 / 校验 / 恢复 -->
+  <div id="snap-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>全库快照</h3>
+      <p class="hint">快照只装稿子(<code>loom.toml</code> + 正文 + 外置大脑里的 .md),
+        备份目录、指纹历史、半稿这些派生文件不进 —— 它们能重建,进去只会把快照撑大。</p>
+      <div class="row-end">
+        <button id="snap-make" class="primary">拍一张(不花钱)</button>
+        <button id="snap-close" class="ghost">关闭</button>
+      </div>
+      <div id="snap-list" class="snap-list">在读…</div>
+      <p class="hint">恢复是破坏性操作:要照着快照名输入才算数;恢复前系统会自动再拍一张保命的。快照里没有的文件不动(那是你后来写的)。</p>
+    </div>
+  </div>
+
+  <!-- 实体表:正名 / 别名 / 改名(全库替换先预览) -->
+  <div id="ents-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>实体表</h3>
+      <p class="hint">角色 / 地点 / 物品 / 功法 / 组织。表是唯一真源,id 一旦生成永不改;改名只改正名与别名。</p>
+      <div class="field-row">
+        <button id="ents-reload" class="mini">刷新</button>
+        <button id="ents-scan" class="mini" title="从材料里扫人物,先报会新增几条(不写盘)">扫材料(只看不改)</button>
+      </div>
+      <div id="ents-head" class="hint"></div>
+      <div id="ents-body" class="facts-body"></div>
+      <details>
+        <summary>改名(全库替换)</summary>
+        <div class="field-row">
+          <input id="ents-old" placeholder="旧名" />
+          <input id="ents-new" placeholder="新名(至少 2 个字)" />
+          <button id="ents-preview" class="mini">先看会改哪些文件</button>
+        </div>
+        <div id="ents-preview-box" class="facts-body"></div>
+        <div class="field-row">
+          <input id="ents-typed" placeholder="照着旧名再打一遍才算数" />
+          <button id="ents-rename" class="mini">真改</button>
+        </div>
+      </details>
+      <div id="ents-report" class="hint"></div>
+      <div class="row-end"><button id="ents-close" class="ghost">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- 本章诊断:运行卡 / 影响面 / 修复方案 / 审稿模板 / 写租约 -->
+  <div id="chdiag-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>本章诊断</h3>
+      <p class="hint">这一章是怎么跑出来的、改上级要重算哪些章、AI 打算怎么改、平台合规模板有没有、谁在写这一章。</p>
+      <div class="field-row">
+        <label class="field-label" for="chdiag-ch">第几章</label>
+        <input id="chdiag-ch" type="number" min="1" style="width:90px" />
+        <button id="chdiag-load" class="mini">看这一章</button>
+      </div>
+      <div id="chdiag-head" class="hint"></div>
+      <div id="chdiag-body" class="facts-body"></div>
+      <div class="field-row">
+        <button id="chdiag-sync" class="mini" title="只在上游改过时打脏标,一个模型调用都不发">上游变了就打个脏标(不重跑)</button>
+        <button id="chdiag-lease" class="mini" title="告诉别的窗口这一章你在写;到期自动失效,不会把书锁死">标记我在写这一章</button>
+        <button id="chdiag-release" class="mini">放掉标记</button>
+      </div>
+      <div id="chdiag-report" class="hint"></div>
+      <div class="row-end"><button id="chdiag-close" class="ghost">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- R5 冲突与裁定:默认优先级 + 逐处请示 + 记例外裁定 -->
+  <div id="arb-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>冲突与裁定</h3>
+      <p class="hint">材料互相矛盾时,默认 <b>设定 &gt; 章纲 &gt; 正文</b>。
+        一旦你对某一处作过例外裁定,<b>其余冲突一律逐处请示,绝不外推</b>。</p>
+      <p class="hint">「扫一遍这本书」是确定性检测:两层里同一个「键:值」写了不同值、卷起止重叠、词典别名冲突。
+        正文里的事实矛盾(左手还是右手)要读懂句子,那把刀在「让 AI 读一遍正文」——它只出提案,
+        原句在正文里查不到的会标红,勾哪条送进裁定由你定。</p>
+      <div class="field-row">
+        <button id="arb-scan" class="mini">扫一遍这本书</button>
+        <button id="arb-ai" class="mini"
+                title="正文是散文,事实矛盾要读懂句子才看得见。这会花一次模型调用,只出提案,一个字不改">让 AI 读一遍正文(花一次调用)</button>
+      </div>
+      <div id="arb-head" class="hint"></div>
+      <div id="arb-body" class="facts-body"></div>
+      <div id="arb-report" class="hint"></div>
+      <details>
+        <summary>已记下的例外裁定</summary>
+        <div id="arb-overrides" class="facts-body"></div>
+      </details>
+      <div class="row-end"><button id="arb-close" class="ghost">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- R3/R4 资料账本:四视图 + 手写 + 灌伏笔 + AI 抽提案 + 谁知道 -->
+  <div id="facts-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>资料账本</h3>
+      <p class="hint">伏笔 / 剧情线 / 时间线 / 知情矩阵都在这里。AI 抽出来的只是**提案**,
+        点「确认入账」才写盘——防止模型编的东西变成 canon。</p>
+      <div class="field-row">
+        <button id="facts-reload" class="mini">刷新</button>
+        <button id="facts-ingest" class="mini" title="把卡章纲里的伏笔灌进账本(只替换来源=卡章纲的行)">把章纲伏笔灌进来</button>
+        <button id="facts-extract" class="mini" title="让 AI 读这一章抽提案(会花钱一次,一个字不写)">让 AI 抽这一章</button>
+      </div>
+      <div id="facts-head" class="hint"></div>
+      <div id="facts-body" class="facts-body"></div>
+      <div id="facts-proposal" class="hidden"></div>
+      <details>
+        <summary>手写一条</summary>
+        <div class="field-row">
+          <select id="facts-kind">
+            <option>伏笔</option><option>剧情线</option><option>时间</option><option>知情</option>
+          </select>
+          <input id="facts-ch" type="number" min="1" placeholder="第几章" />
+          <input id="facts-subject" placeholder="主体(人名 / 伏笔名 / 时间点)" />
+          <input id="facts-obj" placeholder="对象" />
+          <input id="facts-value" class="wide" placeholder="值(知情填「知道」或「不知道」)" />
+          <button id="facts-add" class="mini">记上</button>
+        </div>
+      </details>
+      <details>
+        <summary>谁知道(第几章时,某人知不知道某事)</summary>
+        <div class="field-row">
+          <input id="knows-ch" type="number" min="1" placeholder="第几章" />
+          <input id="knows-who" placeholder="谁" />
+          <input id="knows-what" placeholder="什么" />
+          <button id="knows-ask" class="mini">查</button>
+        </div>
+        <div id="knows-answer" class="hint"></div>
+      </details>
+      <div id="facts-report" class="hint"></div>
+      <div class="row-end"><button id="facts-close" class="ghost">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- R18 导出:格式 × 切分 × 落点 + 打印成 PDF -->
+  <div id="export-overlay" class="overlay hidden">
+    <div class="run-card settings-card">
+      <h3>导出</h3>
+      <p class="hint">TXT / Markdown 直接写进书里的目录;要 PDF 就选「打印稿」——
+        浏览器打开 → <kbd>Ctrl</kbd>+<kbd>P</kbd> → 另存为 PDF(不装独立引擎)。</p>
+      <div class="field-row">
+        <label class="field-label" for="export-fmt">格式</label>
+        <select id="export-fmt">
+          <option value="txt">纯文本 TXT</option>
+          <option value="md">Markdown</option>
+          <option value="pdf">打印稿(浏览器存成 PDF)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label class="field-label" for="export-split">怎么切</label>
+        <select id="export-split">
+          <option value="书">整本一份</option>
+          <option value="卷">按卷分</option>
+          <option value="章">一章一个文件</option>
+        </select>
+      </div>
+      <label class="field-label" for="export-dir">落到书里的哪个目录(留空 = 导出/)</label>
+      <input id="export-dir" placeholder="导出" />
+      <p class="hint">目录里已经有同名文件时整批拒绝(绝不覆盖);换个目录名再导一次即可。</p>
+      <div class="row-end">
+        <button id="export-plan" class="mini">先看会生成几份</button>
+        <button id="export-run" class="primary">导出</button>
+        <button id="export-close" class="ghost">关闭</button>
+      </div>
+      <div id="export-report" class="hint">改了参数会自动重算。</div>
+    </div>
+  </div>
+
+  <!-- agent 全流程:点任一 agent → 看「一章怎么织出来」(作者 2026-10-20 改造) -->
+  <div id="flow-overlay" class="overlay hidden">
+    <div class="run-card flow-card">
+      <h3>一章，是这样织出来的</h3>
+      <p class="hint">写作引擎 6 道接力：细纲 → 填设定 → 分镜 → 写手初稿 → 责任编辑改稿 → 润色师终稿。</p>
+      <div class="flow-inputs">输入 · 外置大脑：设定集（立项 / 世界观 / 人物 / 战斗 / 知识）· 卷纲 · 卡章纲 · 写作指纹 · 文风档案 ＋ skills 方法论</div>
+      <div id="flow-stages" class="flow-stages"></div>
+      <div class="flow-loop">写完终稿 → 你手改 → 「学这章的手改 learn」 → 写作指纹更新 → 下一章更像你</div>
+      <div class="row-end">
+        <!-- 2026-10-21 需求确认删掉「查看这一棒的提示词」这个入口:
+             作者不需要知道 agent 提示词这种实现细节。 -->
+        <button id="flow-close" class="primary">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 命令面板 ⌘K -->
+  <div id="cmdk" class="cmdk hidden">
+    <div class="cmdk-box">
+      <input id="cmdk-input" type="text" placeholder="输入命令…(写下一章 / 重写 / 主题 / 专注 / 导出…)" />
+      <div id="cmdk-list" class="cmdk-list"></div>
+    </div>
+  </div>
+
+  <!-- 朱批浮条:选中正文时就地浮出(重写这段/复制) -->
+  <div id="seal-bar" class="seal-bar">
+    <button id="seal-rewrite" class="sb-rewrite"><span class="ico" data-ico="rewrite"></span> 重写这段</button>
+    <button id="seal-copy">复制</button>
+  </div>
+
+  <!-- 织章状态条:写章弹窗收起后,织机在底部继续响着 -->
+  <div id="run-strip" class="run-strip hidden">
+    <span id="rs-label" class="rs-label"></span>
+    <span id="rs-pills" class="rs-pills"></span>
+    <span id="rs-count" class="rs-count"></span>
+    <button id="rs-stop" class="mini ghost">停</button>
+    <button id="rs-expand" class="mini ghost">展开</button>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- 图标:iconfont(阿里矢量图标库)Symbol 方案。两步接上,见 docs/design/iconfont.md
+       1) iconfont.cn 建项目 → 按「采购清单」加图标 → 每个图标命名为清单里的 id(或改 app.js 的 IC 映射)
+       2) 在「Symbol」标签「下载至本地」拿到一个 .js → 存为 loom/webui/iconfont.js(离线可用)
+          想图省事也可换成在线链接 //at.alicdn.com/t/c/font_xxx.js(需联网)。
+       接上前:文字标签照常显示,图标位先空着。 -->
+  <script src="/iconfont.js?v=20261103b"></script>
+  <!--2026-11-02：study/core.js 提供 StudyCore.buildBookCard（书卡同源构建，renderRecent 用）。
+      它是独立全局模块（不依赖 app.js），先于 app.js 加载。 -->
+  <script src="/study/core.js?v=20261116d"></script>
+  <script src="/app.js?v=20261116f"></script>
+<script src="/browse.js?v=20261112b"></script>
+</body>
+</html>

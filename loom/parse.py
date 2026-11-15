@@ -1,0 +1,518 @@
+"""prompt↔解析器 共置面:模型输出的读侧解析收拢在此(S7)。
+
+每个解析器上方的注释贴着对应 prompt 的输出格式约定——改 prompt 格式时解析器就在手边,
+两侧一起改,不再散落 7 个文件各自漂移。原模块保留薄别名(from .parse import x),
+既有 import 面(含 evalapi 门面、tests)不变。
+
+索引(prompt → 解析器):
+- gates.CRITIC_质检 / CRITIC_去AI味      → parse_verdict
+- agents._TITLE_SYSTEM                  → clean_title
+- agents/编辑.md(编辑留痕围栏/旧哨兵)   → split_edit_note / strip_edit_note
+- recap._RECAP_SYSTEM                   → format_recap_block
+- enrich._ENRICH_SYSTEM                 → parse_enrich_sections
+- draft._DRAFT_SYSTEM                   → split_brain_draft
+- agents/领航员.md 输出格式              → parse_journey_card
+- fingerprint(anchor 例句段)的读侧在 aitell.load_anchors(挂名于此,不搬——它同时服务检测器)
+"""
+
+from __future__ import annotations
+
+import json
+import re
+
+# ── 编辑留痕围栏(agents/编辑.md + skills/评估自检.md 约定) ──────────────────
+# prompt 约定(新契约):第一段干净正文;留痕用成对标签围起——
+#   <LOOM:EDIT-NOTE>\n《本章改动留痕》…\n</LOOM:EDIT-NOTE>
+# 读侧永久兼容三态:成对围栏(可校验闭合)/ 旧单点哨兵(老项目模板还在用)/ 无标记。
+EDIT_NOTE_OPEN = "<LOOM:EDIT-NOTE>"
+EDIT_NOTE_CLOSE = "</LOOM:EDIT-NOTE>"
+EDIT_NOTE_SENTINEL = "<!--LOOM:EDIT-NOTE-->"   # 旧单点哨兵,读侧永不下线
+EDIT_NOTE_MARKS = (EDIT_NOTE_OPEN, EDIT_NOTE_SENTINEL)   # 两种开标记(流式过滤同用)
+EDIT_NOTE_UNCLOSED = "(围栏未闭合:以下按开标签后全部内容截取,可能混入非留痕)"
+
+
+def split_edit_note(text: str) -> tuple[str, str]:
+    """按留痕标记首次出现切分 →(干净正文 body, 留痕 note)。无标记则 (text, "")。
+
+    三态:① 成对围栏:note=标签之间,闭合标签之后的尾巴丢弃(围栏的意义就是可校验);
+    未闭合 → 取开标签后全部,并在留痕头部标注「围栏未闭合」。② 旧单点哨兵:哨兵后全部是
+    note(原语义)。③ 无标记:全文是正文。两种开标记都在时按先出现者切。
+    """
+    i_new, i_old = text.find(EDIT_NOTE_OPEN), text.find(EDIT_NOTE_SENTINEL)
+    if i_new == -1 and i_old == -1:
+        return text, ""
+    if i_old != -1 and (i_new == -1 or i_old < i_new):
+        return text[:i_old].rstrip(), text[i_old + len(EDIT_NOTE_SENTINEL):].strip()
+    body = text[:i_new].rstrip()
+    rest = text[i_new + len(EDIT_NOTE_OPEN):]
+    j = rest.find(EDIT_NOTE_CLOSE)
+    if j == -1:
+        note = rest.strip()
+        return body, (EDIT_NOTE_UNCLOSED + "\n" + note).strip() if note else EDIT_NOTE_UNCLOSED
+    return body, rest[:j].strip()
+
+
+def strip_edit_note(text: str) -> str:
+    """落盘前兜底:只保留标记前的干净正文(保护 learn 的 diff 源不被留痕污染)。"""
+    return split_edit_note(text)[0] if any(m in text for m in EDIT_NOTE_MARKS) else text
+
+
+# ── 复审员判词(gates.CRITIC_质检 / CRITIC_去AI味) ──────────────────────────
+# prompt 约定:无硬伤只回一行「通过」;有则每条一行 `- 类别 | 一句话问题 | 证据:"原文短引"`。
+
+# 复审员表示"没问题"的措辞:裸行回「通过」最常见,但偶尔会带 - 项目符号或句号。
+# 命中即跳过,别把它当成一条硬伤而触发无谓回炉(质检/去AI味 共用此解析)。
+_PASS_PHRASES = frozenset({"无硬伤", "通过", "无问题", "没问题", "没有硬伤", "无命中", "没有问题"})
+
+
+def parse_verdict(raw: str) -> list:
+    """解析复审员输出 → 硬伤清单(list[gates.Issue])。无硬伤(回「通过」等)返回空列表。
+
+    宽容解析:每条形如 `- 类别 | 问题 | 证据:"…"`;只认以 - 开头的行。
+    """
+    from .gates import Issue   # 延迟 import:gates 模块级 import 本模块,避免环
+    issues: list = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s.startswith(("-", "·", "•")):
+            continue
+        body = s.lstrip("-·• ").strip()
+        if not body or body.rstrip("。.!！,，、;； \t") in _PASS_PHRASES:
+            continue
+        parts = [p.strip() for p in body.split("|")]
+        kind = parts[0] if parts else "硬伤"
+        desc = parts[1] if len(parts) > 1 else (parts[0] if parts else body)
+        ev = ""
+        if len(parts) > 2:
+            ev = parts[2].split("证据:", 1)[-1].split("证据：", 1)[-1].strip().strip('"“”')
+        issues.append(Issue(kind=kind, desc=desc, evidence=ev))
+    return issues
+
+
+# ── 章节标题(agents._TITLE_SYSTEM) ────────────────────────────────────────
+# prompt 约定:只输出标题本身这一行;不带「第N章」章号、不带书名号/引号/星号包裹。
+
+
+def clean_title(raw: str) -> str:
+    """把模型返回收成一个干净标题:取首行、去包裹、去「第N章」前缀;太长/太短/像句子就当没有。
+
+    2026-10-20:本地 Qwen 常先写一句自述再给标题(「用户要求给一章网文起…」/「标题:xxx」)。
+    旧实现只取首行,于是把自述当成了标题——真机产出了「用户要求给一章网文起章节标题，需要」。
+    现在优先认显式的「标题:」行,再退回首行;过长的仍然整体放弃。
+    """
+    if not raw or not raw.strip():
+        return ""
+    lines = [l.strip() for l in raw.strip().splitlines() if l.strip()]
+    if not lines:
+        return ""
+    t = ""
+    for l in lines:                       # 优先认「标题:xxx」
+        m = re.match(r"^[*#\s]*标题\s*[:：]\s*(.+)$", l)
+        if m:
+            t = m.group(1).strip()
+            break
+    if not t:
+        t = lines[0]
+    t = t.lstrip("#").strip()
+    t = t.strip("「」『』“”‘’《》<>#*`： ").strip()
+    t = re.sub(r"^第\s*[0-9一二三四五六七八九十百零]+\s*章[:：、.\s]*", "", t).strip()
+    return t if 1 < len(t) <= 24 else ""   # 太长多半是模型答非所问吐了一段话 → 回退无标题
+
+
+# ── 写后摘要(recap._RECAP_SYSTEM) ─────────────────────────────────────────
+# prompt 约定:两段——`摘要:<≤150字>` + `伏笔:`(下挂 `- [埋设/推进/回收] …` 行,没有则 `- 无`)。
+
+_RECAP_MARK = "[AI回顾]"   # 物理隔离标记(recap 写侧同用,单一真相在这)
+
+
+def format_recap_block(n: int, raw: str) -> str:
+    # 把 LLM 两段输出折成卡章纲下的缩进子块;截断摘要 ≤150 字硬保险
+    text = raw.strip()
+    m = re.search(r"摘要[:：]\s*(.+?)(?=\n伏笔|$)", text, re.DOTALL)
+    summary = (m.group(1).strip() if m else text)[:150]
+    fm = re.search(r"伏笔[:：]?\s*\n(.+)$", text, re.DOTALL)
+    fore = fm.group(1).strip() if fm else "- 无"
+    foreshadow = "\n".join("    " + l.strip() for l in fore.splitlines() if l.strip())
+    return (f"  - {_RECAP_MARK} 摘要:{summary}\n"
+            f"    伏笔:\n{foreshadow}")
+
+
+# ── 外置大脑生长(enrich._ENRICH_SYSTEM) ───────────────────────────────────
+# prompt 约定:两段——`【世界观补充】` + `【人物卡补充】`,各段下是 `- ` 条目行,没有则 `- 无`。
+
+
+def _clean_section(body: str) -> str:
+    """只留 `- ` 条目行,滤掉「无」占位与空行;返回干净的多行块(可能为空串)。"""
+    keep: list[str] = []
+    for raw in body.splitlines():
+        s = raw.strip()
+        if not s.startswith(("-", "•", "・")):
+            continue
+        inner = s.lstrip("-•・ ").strip()
+        if not inner or inner in ("无", "无。", "(无)", "(无)"):
+            continue
+        keep.append("- " + inner)
+    return "\n".join(keep)
+
+
+def parse_enrich_sections(raw: str) -> tuple[str, str]:
+    """把 LLM 两段输出拆成 (世界观补充, 人物卡补充);各自已清洗,空段返回空串。"""
+    text = raw.strip()
+    wm = re.search(r"【世界观补充】\s*(.*?)(?=【人物卡补充】|$)", text, re.DOTALL)
+    cm = re.search(r"【人物卡补充】\s*(.*)$", text, re.DOTALL)
+    world = _clean_section(wm.group(1)) if wm else ""
+    chars = _clean_section(cm.group(1)) if cm else ""
+    return world, chars
+
+
+# ── 外置大脑三件套起草(draft._DRAFT_SYSTEM) ────────────────────────────────
+# prompt 约定:三段用 `===世界观=== / ===人物卡=== / ===卡章纲===` 分隔标记隔开。
+
+
+def split_brain_draft(raw: str) -> dict:
+    out: dict = {}
+    for key in ("世界观", "人物卡", "卡章纲"):
+        m = re.search(rf"==={key}===\s*(.*?)(?=\n===|\Z)", raw, re.DOTALL)
+        if m and m.group(1).strip():
+            out[key] = m.group(1).strip()
+    return out
+
+
+# ── 占位模板判定(立项即铺底):出厂模板里「写给作者的填写说明」──────────────────
+# draft 写侧防覆盖(_is_blank_or_template)与 knowledge 读侧过滤共用这份标记,保证同一语义。
+PLACEHOLDER_MARKS = ("占位示例", "待 seed", "待填充")
+
+# 提示行=整行被（）/() 括起且含占位标记;正文里顺嘴提到标记词的句子不算,不许误剥。
+_HINT_LINE_RE = re.compile(
+    r"^\s*[（(].*(?:" + "|".join(PLACEHOLDER_MARKS) + r").*[)）]\s*$")
+# 空表单行:「- 第N章:」「- 体系名称:」等冒号后没内容的骨架行(出厂模板的填写格),不算实质内容
+_EMPTY_ROW_RE = re.compile(r"^-\s*[^:：]{0,40}[:：]\s*$")
+# 行内括号注释段(全角/半角):表单行的说明文字,判「空表单行」前先剥掉——
+# 「- 金手指(类型/…;短板:资源):」剥完是「- 金手指:」,和空章行同类
+_PAREN_SPAN_RE = re.compile(r"（[^（）]*）|\([^()]*\)")
+
+
+def strip_placeholder_hints(text: str) -> str:
+    """剥掉占位提示行。真内容与提示混排的文件(如立项卡的平台行 + 各格括注)只丢提示、留内容
+    ——不能按「文件含标记」整份误杀。"""
+    return "\n".join(l for l in text.splitlines() if not _HINT_LINE_RE.match(l))
+
+
+def is_substantive(text: str) -> bool:
+    """剥占位提示后还有没有实质内容。标题/引用注释/空章行不算——出厂模板剥完只剩这些,
+    不该冒充设定进 prompt(读侧过滤与 brain_ready 判定共用)。"""
+    for line in strip_placeholder_hints(text).splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or s.startswith(">"):
+            continue
+        if _EMPTY_ROW_RE.match(_PAREN_SPAN_RE.sub("", s)):
+            continue
+        return True
+    return False
+
+
+# ── 领航员问题卡(journey.next_card 消费;输出约定住 templates/agents/领航员.md) ──
+# 输出约定(prompt ↔ 解析器共置面):
+#   格:题材            ← 可选,仅立项阶段
+#   问:一行问题         ← 容忍 markdown 装饰/编号/「问题」「Q」变体(模型常飘,飘了不该降级)
+#   - 选项(2-4 个)      ← 容忍 * / • / 数字编号作弹头
+#   无题哨兵:全文含「【无题】」且没有问句才算(问句判定在前:句中复述格式规则不算,防模型自我降级)。
+_CARD_Q_RE = re.compile(r"^\s*(?:\d+[.、]\s*)?[*_#\s]*(?:问题?|[Qq])[*_\s]*[:：]\s*(\S.*?)[*_\s]*$")
+_CARD_F_RE = re.compile(r"^\s*[*_#\s]*格[*_\s]*[:：]\s*(\S+?)[*_\s]*$", re.M)
+_CARD_OPT_RE = re.compile(r"^\s*(?:[-*•]|\d+[.、])\s+(\S.*)$")
+
+
+def parse_journey_card(raw: str) -> dict | None:
+    """领航员输出 → 问题卡;无题 {"exhausted": True};不成卡 None(调用方降级为自由输入)。"""
+    lines = raw.splitlines()
+    q_idx = next((i for i, l in enumerate(lines) if _CARD_Q_RE.match(l.strip())), None)
+    if q_idx is None:
+        if "【无题】" in raw:   # 没问句才轮到哨兵;有问句时问句赢(防模型复述规则自我降级)
+            return {"exhausted": True}
+        return None
+    question = _CARD_Q_RE.match(lines[q_idx].strip()).group(1).strip(" *_").strip()
+    options = [m.group(1).strip(" *_").strip() for l in lines[q_idx + 1:] if (m := _CARD_OPT_RE.match(l))]
+    card: dict = {"question": question, "options": [o for o in options if o][:4]}
+    f = _CARD_F_RE.search(raw)
+    if f:
+        card["field"] = f.group(1).strip(" *_").strip()
+    return card
+
+
+# ── 文本工具协议(书房伙伴对话 agent 的工具调用面) ───────────────────────────
+# 约定:`用:<工具名>` 起一个工具块,后续 `键:值` 行到空行/文末止;之后的尾巴文字丢弃。
+# 沿用领航员卡解析同款手艺——`[*_#\s]*` 剥 markdown 装饰、全/半角冒号都认、
+# `.strip(" *_")` 收尾、`(?:\d+[.、]\s*)?` 容忍编号前缀(与 _CARD_Q_RE 同款)。
+# 前后容忍括号/方括号壳:真机实测模型会把 `用:提设定` 照抄历史叙述的括号包成 `(用:提设定)`
+# ——壳里是对的,得认出来,否则漏字不出卡。仍只认「用」紧跟(剥装饰后)冒号,`(用不着…)` 这类
+# 散文(用后不是冒号)不误吞。
+_TOOL_USE_RE = re.compile(r"^\s*(?:\d+[.、]\s*)?[*_#\s（(【\[]*用[*_\s]*[:：]\s*(\S.*?)[*_\s）)】\]]*$")
+# 宽容版（2026-10-20，作者反馈「小模型会把『用:』写成叙述、deepseek4.1f 偶尔换词」）：
+# 额外认 调用 / 工具 / tool / invoke 这些同义前缀。**只给对话通道用**——写章通道保持严格，
+# 因为 `strip_protocol_lines` 共用严格正则剥残留行，全局放宽会把正文里「工具:…」这类行误删。
+_TOOL_USE_RE_FLEX = re.compile(
+    r"^\s*(?:\d+[.、]\s*)?[*_#\s（(【\[]*(?:用|调用|工具|tool|Tool|TOOL|invoke|Invoke)[*_\s]*[:：]\s*(\S.*?)[*_\s）)】\]]*$"
+)
+_TOOL_KV_RE = re.compile(r"^\s*[*_#\s]*([^:：*_]+?)[*_\s]*[:：]\s*(.*?)\s*$")
+
+# 工具块围栏「工具格式改英文 + 与中文对话区分」）：
+# 真机两次实测——本地 35B 会把 `用:提设定` 加粗、写进正文、或干脆只在正文里"描述"候选卡。
+# 改用 ```loom / ```tool 围栏把调用包起来，模型对**代码块边界**最敏感，视觉上也和中文叙述
+# 彻底分开。块内允许两种写法：`TOOL: 名字` 或第一行就写名字（`提设定`）。
+_TOOL_FENCE_RE = re.compile(r"```[ \t]*(?:loom|tool|TOOL)[ \t]*\n(.*?)```", re.S)
+_TOOL_FENCE_OPEN_RE = re.compile(r"^\s*```[ \t]*(?:loom|tool|TOOL)[ \t]*$")
+
+
+def _unwrap_tool_fences(text: str, valid_names: set[str] | None, *, flexible: bool = False) -> str:
+    """把围栏块还原成裸协议行，让后面的解析器原样吃。块外文字不动。"""
+
+    def _sub(m: "re.Match[str]") -> str:
+        body = m.group(1).strip("\n")
+        first, _, rest = body.partition("\n")
+        name = first.strip().strip("*_`# ")
+        # 块内第一行只是工具名（`提设定`）→ 补成 `用:提设定`，符合后续触发规则
+        if valid_names and name in valid_names:
+            return f"用:{name}\n{rest}" if rest.strip() else f"用:{name}"
+        # Unknown bare names must retain their fence so the dialog filter can
+        # flag a malformed attempt. Never infer a registered tool from prose.
+        if flexible and not _TOOL_USE_RE_FLEX.match(first):
+            # Legacy dialog format: a registered tool header immediately precedes
+            # a fence containing its parameter lines (the header is not in it).
+            before = text[:m.start()].rstrip(" \t\r\n")
+            previous = before.rsplit("\n", 1)[-1] if before else ""
+            header = _TOOL_USE_RE_FLEX.match(previous)
+            external_name = header.group(1).strip(" *_").strip() if header else ""
+            parameter_fence = bool(
+                header and (valid_names is None or external_name in valid_names)
+                and body.strip()
+                and all(not line.strip() or _TOOL_KV_RE.match(line)
+                        for line in body.splitlines())
+            )
+            if not parameter_fence:
+                return m.group(0)
+        return body
+
+    return _TOOL_FENCE_RE.sub(_sub, text)
+
+
+def parse_tool_blocks(text: str, valid_names: set[str] | None = None,
+                       known_params: dict[str, tuple[str, ...]] | None = None,
+                       *, flexible: bool = False) -> tuple[str, list[dict]]:
+    """(说话段, [工具调用...])。工具调用 = {"name": str, "params": {键:值}, "body": str}。
+    FB-B 多候选:一条消息里可连发多个「用:」块,逐块解析成一个工具(领航员想给作者几个方向挑时用)。
+
+    `valid_names` 不给(默认):收全文所有「用:」块;给了:只收「名字 ∈ valid_names」的块——
+    名字不认识的「用:」行不算触发,当普通文本(防中文里孤立的「用:xxx」说话句被误判)。
+    每块 params 从块行下一行起,到 **空行 / 非kv行 / 下一个「用:」触发行 / 白名单外的键** 止
+    (下一个触发行必须终止上一块,否则 `用:提设定` 会被 `_TOOL_KV_RE` 当成 `用=提设定` 吞进
+    params)。say=第一个【有效】块之前的文本;有效块之间/之后的散文丢弃(协议行由调用方 _strip 清)。
+
+    `known_params`(终审①critical:每个工具**声明过的**参数名,{工具名: 参数名元组},调用方从
+    自己的工具注册表 `.params` 派生):给了,params 扫描一遇到不在该工具白名单里的键就立刻停手、
+    把该行连同之后的原文转入 body——**中文对白行是合法的 `键:值` 形状**(如「林三：「你来晚了。」」),
+    模型漏打参数与正文之间的分隔空行时,以前会把对白第一行当参数吞掉,正文首行静默消失。
+    不给(默认 None)/字典里没有这个工具名:该工具不设限制,行为与加这个参数之前逐字一致
+    (向后兼容——不是所有调用点都愿意/能够传白名单)。
+
+    **body**(写章通道要的):params 之后、到下一个「用:」触发行或结尾为止的原文。
+    `提交` 的「内容」是整章正文——多行散文塞不进一行 `键:值`,故走 body 这条路
+    (伙伴通道的三个工具参数都短,body 恒为空串,行为与加它之前逐字一致)。
+    """
+    text = _unwrap_tool_fences(text, valid_names, flexible=flexible)   # ```loom 围栏 → 裸协议行（块外文字不动）
+    lines = text.splitlines()
+    re_use = _TOOL_USE_RE_FLEX if flexible else _TOOL_USE_RE
+    triggers: list[tuple[int, str]] = []          # 所有「用:」行(有效+无效)
+    for i, l in enumerate(lines):
+        m = re_use.match(l)
+        if m:
+            triggers.append((i, m.group(1).strip(" *_").strip()))
+    valid = [(i, n) for (i, n) in triggers if valid_names is None or n in valid_names]
+    if not valid:
+        return text.strip(), []
+    trigger_lines = {i for (i, _) in triggers}    # 任一「用:」行都终止上一块的 params
+    say = "\n".join(lines[:valid[0][0]]).strip()
+    tools: list[dict] = []
+    for (ui, name) in valid:
+        allowed = known_params.get(name) if known_params is not None else None
+        params: dict = {}
+        j = ui + 1
+        while j < len(lines):
+            if not lines[j].strip() or j in trigger_lines:
+                break                              # 空行 / 撞到下一个「用:」块 → 本块 params 止
+            m = _TOOL_KV_RE.match(lines[j])
+            if not m:
+                break
+            key = m.group(1).strip(" *_").strip()
+            if allowed is not None and key not in allowed:
+                break                              # 白名单外的键 → 不是参数,转 body(对白行护栏)
+            params[key] = m.group(2).strip(" *_").strip()
+            j += 1
+        # body:params 之后到下一个「用:」行(或结尾)为止的原文。整章正文走这条路。
+        end = next((t for t in sorted(trigger_lines) if t > ui), len(lines))
+        body = "\n".join(lines[j:end]).strip()
+        tools.append({"name": name, "params": params, "body": body})
+    return say, tools
+
+
+def parse_tool_block(text: str, valid_names: set[str] | None = None) -> tuple[str, dict | None]:
+    """(说话段, 第一个工具调用 | None)。`parse_tool_blocks` 的薄兼容层——既有单工具调用点
+    (流式预览裁剪、旧测试)不受 FB-B 多候选影响;多块场景走 `parse_tool_blocks`。"""
+    say, tools = parse_tool_blocks(text, valid_names)
+    return say, (tools[0] if tools else None)
+
+
+# ── 流式协议行纪律(从 partner.py 搬来;写章通道与伙伴通道共用一份) ─────────────
+# spec 2026-07-16 §5.2 critical:协议行绝不许漏到作者屏幕上。两条通道的模型都会输出
+# 「用:」块,漏一行就是把内部协议摆到作者脸上,故这套判据只能有一份。
+
+def is_trigger_line(line: str, *, flexible: bool = False) -> bool:
+    """一行是否为协议起点——流式转发的停发判据。
+
+    flexible 仅供对话调用方显式启用，同步接纳同义前缀与工具围栏；默认严格。
+
+    刻意比 `parse_tool_block(s)` 的 `valid_names` 校验更粗(只认前缀,不校验工具名在不在
+    注册表内):streaming 预览宁可少发也不可漏发协议行。即便某行最终被判定不是真工具触发,
+    那部分文字也早已由 `complete()` 返回的完整文本走最终解析、正确地进了持久化的说话段
+    ——预览层漏发一行不影响正确性,只是这一行没能提前显现。
+    """
+    re_use = _TOOL_USE_RE_FLEX if flexible else _TOOL_USE_RE
+    return re_use.match(line) is not None or bool(flexible and _TOOL_FENCE_OPEN_RE.match(line))
+
+
+def strip_protocol_lines(text: str, *, flexible: bool = False) -> tuple[str, bool]:
+    """剥掉说话段里混入的协议形状整行(剥装饰后以「用:」开头、但没被选中——工具名瞎编,
+    或误触发块排在真工具前时会有这种残留)。
+
+    flexible=True 与对话解析器同口径接纳同义前缀，工具围栏整块剥离（未闭合则到文末）。
+    返回 `(过滤后文本, 是否剥掉过至少一行)`:后者是「模型想调工具但名字没认出来」的判据,
+    供调用方决定要不要走「解析失败回喂」。
+
+    剥掉一个「用:」行后,还要连它下面**紧跟的 `键:值` 参数行**一起剥——否则名字打错的块
+    (带参数、排在真工具前)的孤儿参数行会漏进作者屏幕。参数块到 空行 / 非kv行 / 下一个
+    「用:」行 止(与 `parse_tool_blocks` 的块终止规则同口径)。
+    """
+    kept: list[str] = []
+    dropped = False
+    skipping_params = False
+    in_fence = False
+    re_use = _TOOL_USE_RE_FLEX if flexible else _TOOL_USE_RE
+    for line in text.splitlines():
+        if flexible and in_fence:
+            if line.strip() == "```":
+                in_fence = False
+            continue
+        if flexible and _TOOL_FENCE_OPEN_RE.match(line):
+            dropped = True
+            in_fence = True
+            skipping_params = False
+            continue
+        if re_use.match(line):
+            dropped = True
+            skipping_params = True
+            continue
+        if skipping_params:
+            if line.strip() and _TOOL_KV_RE.match(line):
+                continue          # 仍是被剥块的参数行 → 丢弃
+            skipping_params = False   # 空行/非kv行:参数块到此为止,本行是真内容,正常保留
+        kept.append(line)
+    return "\n".join(kept).strip(), dropped
+
+
+def stream_line_relay(sink, *, flexible: bool = False):
+    """返回 `(on_chunk, flush)`。`sink(line)` 在整行落定且非触发行时被调用一次(不含换行符)。
+    一旦遇到触发行,后续所有增量与残留行一律不再转发——工具块交给 `complete()` 返回的完整
+    文本统一解析,不依赖这里的增量重建。
+
+    chunk 可能在行内截断(如「用」与「:」分两个 chunk 到达):这里只在遇到 `\\n` 时才判定
+    一整行,天然免疫——`buf` 持续累积,不管上一个 chunk 在哪个字符断开。
+    """
+    state = {"buf": "", "triggered": False}
+
+    def on_chunk(delta: str) -> None:
+        if state["triggered"] or not delta:
+            return
+        state["buf"] += delta
+        while "\n" in state["buf"]:
+            line, state["buf"] = state["buf"].split("\n", 1)
+            if is_trigger_line(line, flexible=flexible):
+                state["triggered"] = True
+                return
+            sink(line)
+
+    def flush() -> None:
+        """流结束收尾:缓冲区残留的未终结行(没有尾随换行符的最后一行),非触发行则冲出。"""
+        if state["triggered"]:
+            return
+        rest, state["buf"] = state["buf"], ""
+        if rest.strip() and not is_trigger_line(rest, flexible=flexible):
+            sink(rest)
+
+    return on_chunk, flush
+
+
+# ── JSON 协议旁路(弱模型优先)────────────────────────────────────────────────
+# 约定:`<tool_call>{"name":"…","args":{…}}</tool_call>`,也接受裸 JSON 对象。
+# 为什么要有这条:文本协议里「键:值」与中文对白同形(见 `known_params` 那道护栏),
+# JSON 没有这个歧义,弱模型少踩一整类坑。**只在 `用:` 协议解析不出工具时兜底**,
+# 不改既有解析行为(既有调用点一行都不用改)。
+JSON_TOOL_TAG_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
+_JSON_NAME_KEYS = ("name", "tool", "tool_name", "工具名", "工具")
+_JSON_ARGS_KEYS = ("args", "arguments", "params", "parameters", "参数")
+
+
+def _loads_object(raw: str) -> dict | None:
+    """尽量把一段文本读成 dict:先试整段,再从第一个 `{` 到最后一个 `}` 抽一次。"""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    cands = [s]
+    i, j = s.find("{"), s.rfind("}")
+    if 0 <= i < j:
+        cands.append(s[i:j + 1])
+    for cand in cands:
+        try:
+            obj = json.loads(cand)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def parse_json_tool_calls(text: str, valid_names: set[str] | None = None,
+                          known_params: dict[str, tuple[str, ...]] | None = None
+                          ) -> tuple[str, list[dict]]:
+    """(说话段, [工具调用...]),返回形状与 `parse_tool_blocks` 完全一致。
+
+    `valid_names` 给了就只收清单内的名字(同 `用:` 协议口径);`known_params` 只为签名
+    兼容而收下——JSON 的参数是显式键值,不需要「中文对白行」那道护栏。
+    """
+    blocks = list(JSON_TOOL_TAG_RE.finditer(text or ""))
+    if blocks:
+        say = JSON_TOOL_TAG_RE.sub("", text or "").strip()
+        raws = [m.group(1) for m in blocks]
+    else:
+        say = (text or "").strip()
+        raws = [text or ""]
+    tools: list[dict] = []
+    for r in raws:
+        obj = _loads_object(r)
+        if obj is None:
+            continue
+        name = ""
+        for k in _JSON_NAME_KEYS:
+            v = obj.get(k)
+            if isinstance(v, str) and v.strip():
+                name = v.strip()
+                break
+        if not name or (valid_names is not None and name not in valid_names):
+            continue
+        args: dict = {}
+        for k in _JSON_ARGS_KEYS:
+            v = obj.get(k)
+            if isinstance(v, dict):
+                args = v
+                break
+        params = {str(k).strip(): str(v).strip() for k, v in args.items()}
+        tools.append({"name": name, "params": params, "body": ""})
+    return say, tools

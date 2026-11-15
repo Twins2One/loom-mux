@@ -1,0 +1,27 @@
+# Loom 项目配置
+
+[backend]
+provider = "deepseek"     # deepseek | claude | codex | openai_compat
+model    = "deepseek-v4-pro"     # DeepSeek V4 默认 pro(更强);更快更省可填 deepseek-v4-flash
+# 可选省钱:复审/写后摘要这类「评估、管 what」的调用走便宜模型,写作/学指纹仍用上面的主模型。留空=全用主模型。
+# cheap_model = "deepseek-v4-flash"
+# openai_compat(接智谱GLM/Moonshot/Qwen/硅基流动等)时再填这家的接口地址,例:
+# base_url = "https://open.bigmodel.cn/api/paas/v4"
+
+[novel]
+title = "__TITLE__"
+"章节字数" = 800           # 终稿目标字数;中间工序(锚点/细纲)自然更短
+
+[gate]
+# 质检/去AI味 复审轮数:1=只挑硬伤写进 .审稿留痕/(默认,不自动改稿);≥2 才回炉重写;0=关闭
+"轮数" = 1
+# 伏笔悬空提醒章距:埋设超过这么多章仍无推进/回收 → 写新章时进 .审稿留痕/ 提醒(纯提示,不回炉、不阻断);0=关
+"伏笔提醒章距" = 8
+
+# ---- 联网查资料(2026-10-19 裁定 2)----
+# 不配也能用知识顾问,只是面板上的「搜一下」会照实告诉你没配(key 只从环境变量读,不写进这里)。
+# [search]
+# engine   = "tavily"        # tavily | bing | generic
+# base_url = "https://api.tavily.com/search"
+# key_env  = "LOOM_SEARCH_KEY"
+# limit    = 8

@@ -1,0 +1,331 @@
+/* 书房伙伴与档案的局部样式；颜色沿用 style.css 的语义变量。 */
+.study-path-row { display: flex; align-items: center; gap: 8px; }
+.study-path-row input { flex: 1; min-width: 0; }
+.study-path-row button { flex: none; white-space: nowrap; }
+.study-settings-divider { margin: 20px 0 12px; border: 0; border-top: 1px solid var(--line); }
+.study-credential-help { font-size: 12.5px; line-height: 1.75; margin: 8px 0 18px; }
+.study-credential-help summary { cursor: pointer; color: var(--text-soft); }
+.study-credential-help p { margin: 8px 0; }
+.study-credential-help ol { padding-left: 1.8em; }
+.study-confirm, .study-picker { box-sizing: border-box; width: min(520px, 92vw); max-height: 85vh; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 12px; padding: 24px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-3); }
+.study-confirm::backdrop, .study-picker::backdrop { background: rgba(0,0,0,.45); }
+.study-confirm .confirm-description, .study-picker .browse-location { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.study-picker .browse-entries { display: flex; flex-direction: column; gap: 5px; min-height: 80px; max-height: 40vh; overflow-y: auto; margin: 12px 0; }
+.study-picker .browse-entries button { text-align: left; overflow-wrap: anywhere; }
+.pc-input, .agent-memo-input { box-sizing: border-box; resize: vertical; max-height: 35vh; }
+
+.partner-chat { max-width: 56em; display: flex; flex-direction: column; gap: 1em; }
+.partner-chat .pc-scroll { min-height: 12em; max-height: 52vh; }
+.partner-chat .pc-input { min-height: 4.6em; }
+.study-shelf-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 55vh; overflow-y: auto; }
+/*2026-11-03 书架定稿（作者手绘）：大面积网格——浮窗铺满主区域多行多列滚动。
+  书封样式（三轮定稿的 .shelf .book）不动；书架浮窗专用。 */
+.shelf-wide { width: min(1100px, 92vw); max-height: 86vh; }
+.shelf-wide .study-shelf-list { max-height: none; overflow: visible; }
+.shelf-wide .shelf { max-height: none; overflow-y: visible;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.shelf-book { display: flex; align-items: center; gap: var(--space-3); text-align: left; }
+.shelf-book .book-title { flex: 1; min-width: 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-all; }                                /* 2026-11-07 手测 P3:200 字书名撑爆书架横排卡 */
+.shelf-book .book-meta { margin-left: auto; color: var(--text-mute); font-size: var(--fs-xs); flex: none; }
+.volume-layout { display: flex; align-items: flex-start; gap: var(--space-5); }
+.volume-article { flex: 1; min-width: 0; }
+/*2026-10-30（作者第3条）：阅读页顶部那一块。
+ 原来是 flex+wrap：标题 `width:100%` 占满一行后，下拉与红按钮被挤到第二行，
+ 且贴着标题、高低不齐。现在改两行网格：标题一行，第二行左提纲、右按钮。 */
+.volume-toolbar {
+ display: grid; grid-template-columns: 1fr auto; align-items: center;
+ gap: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line); padding-bottom: var(--space-3); margin-bottom: var(--space-4); }
+.volume-title { grid-column: 1 / -1; width: 100%; margin-bottom: var(--space-1); }
+.volume-title { margin: 0; font: var(--fs-h1)/1.4 var(--font-brand); font-weight: 400; }
+.volume-article .md-preview table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 1em 0; }
+.volume-article .md-preview th, .volume-article .md-preview td {
+  border: 1px solid var(--line); padding: .45em .6em; text-align: left; }
+.volume-article .md-preview th { background: var(--bg-sunken); font-weight: 400; }
+.volume-article .md-preview pre { background: var(--bg-sunken); padding: .9em; border-radius: 6px; overflow-x: auto; }
+.ask-volume {
+ background: var(--seal); color: var(--text-on-accent); border-color: var(--seal);
+ font-weight: 500; font-size: 12.5px; padding: 4px 12px; white-space: nowrap;
+}
+.ask-volume:hover { background: var(--seal-ink); border-color: var(--seal-ink); }
+.volume-partner { flex: 0 0 320px; max-height: 72vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-3); }
+.volume-partner[hidden] { display: none; }
+.volume-partner-head { display: flex; align-items: flex-start; gap: var(--space-2); }
+.volume-partner-head .muted { flex: 1; min-width: 0; }
+.volume-partner .pc-scroll { max-height: 36vh; }
+.role-workspace { max-width: 64em; display: flex; flex-direction: column; gap: var(--space-4); }
+.work-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-4); }
+.work-card h3 { margin: 0 0 var(--space-2); font-size: var(--fs-h2); font-weight: 400; }
+.work-card .hint { margin-bottom: var(--space-3); }
+.work-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.role-workspace textarea { min-height: 7em; }
+.role-workspace .row-end { align-items: center; }
+.role-workspace select { max-width: 20em; }
+.advisor-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.advisor-step { padding: var(--space-3); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--bg-sunken); }
+.advisor-step b { display: block; font-weight: 400; margin-bottom: var(--space-1); }
+.advisor-step span { color: var(--text-mute); font-size: var(--fs-xs); }
+@media (max-width: 899px) {
+  .volume-layout { flex-direction: column; }
+  .volume-partner { flex: none; width: 100%; max-height: 60vh; }
+  .work-grid, .advisor-steps { grid-template-columns: minmax(0, 1fr); }
+}
+.archive-switcher { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); max-width: 32em; }
+.archive-switcher input { min-width: 0; }
+.archive-list { display: flex; flex-direction: column; gap: .8em; max-width: 56em; }
+.archive-item { display: flex; align-items: center; gap: 1em; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 1em 1.2em; cursor: pointer; }
+.archive-item:hover { border-color: var(--line-strong); }
+.archive-item .archive-name { font-size: 14px; color: var(--text); }
+.archive-item .archive-meta { margin-left: auto; color: var(--text-mute); font-size: 11.5px; white-space: nowrap; }
+.archive-item .archive-note { font-size: 11.5px; color: var(--text-mute); margin-top: .3em; }
+.archive-layer { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .8em 1em; }
+.archive-layer > summary { cursor: pointer; color: var(--text); font-size: 14px; }
+.archive-layer .layer-note { color: var(--text-mute); font-size: 11.5px; margin: .4em 0 .7em; }
+.archive-docs { display: flex; flex-direction: column; gap: .4em; }
+.archive-doc { display: flex; align-items: baseline; gap: .6em; padding: .55em .65em; border: 1px solid var(--line-soft); border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.archive-doc:hover { background: var(--bg-sunken); }
+.archive-doc .doc-meta { margin-left: auto; color: var(--text-mute); font-size: 11px; white-space: nowrap; }
+.archive-text { max-width: 58em; font: 15px/1.95 var(--font-read); overflow-wrap: anywhere; }
+.archive-text .reading { font: inherit; max-width: none; }
+.archive-toolbar { display: flex; align-items: center; gap: .8em; margin-bottom: 1.2em; }
+.archive-toolbar .back { margin: 0; }
+.archive-toolbar .archive-name { font-size: 15px; }
+
+/*2026-10-30（作者第4条）：教材画幅太窄。
+原因不是文章有 max-width，而是 .volume-layout是 flex且右侧陪聊栏固定320px，
+宽屏时正文被挤在中间一条。这里让正文在宽屏上自然铺开，
+同时给「阅读舒适」留一个上限（一行的字太多也难读）。 */
+@media (min-width:1100px) {
+ .volume-article .md-preview {
+ max-width:46em;
+ }
+}
+@media (min-width:1500px) {
+ .volume-article .md-preview {
+ max-width:54em;
+ }
+}
+/*陪聊栏在超宽屏上不要吃更多空间，正文优先*/
+@media (min-width:1300px) {
+ .volume-partner { flex:0 0 360px; }
+}
+/*2026-10-30（作者第3条）：提纲下拉。窄的时候不挤掉「问问书房伙伴」。 */
+.volume-outline {
+ max-width:22em; min-width:9em;
+ padding:3px 8px; font-size:12px;
+ border:1px solid var(--line-strong); border-radius:6px;
+ background: var(--bg); color: var(--text);
+}
+@media (max-width:760px) {
+ .volume-outline { max-width:40%; }
+}
+/*2026-10-30（作者：语料分析师UI重排）：四块按**实际操作顺序**排——
+①取样 →②文档库 →③蒸馏 →④写手参考。
+取样与蒸馏并排（都短），文档库横跨整行（它最长、也是蒸馏的前置）。
+为什么这么排：原来是"①取样 |②蒸馏"并排、文档库夹在中间还没编号，
+人得先看到③才知道"哦还得在上面勾选"——把顺序理顺了就不用猜。 */
+.work-grid { align-items: start; }
+.work-grid > .work-card { grid-column:1 / -1; }
+@media (max-width:899px) {
+ .work-grid > .work-card:nth-child(2) { grid-column: auto; }
+}
+
+/*2026-11-01（作者手绘图）：三角色独立 agent 页。
+  结构 = 大对话窗（复用 partner 的 pc-* 类）+ 双便条粘贴框 + 待处理列表。
+  便条框并排，窄屏折上下；待处理条目 = 标题 + 两行预览 + 删除。 */
+.agent-chat { display: flex; flex-direction: column; }
+.agent-scroll { min-height: 300px; }
+.agent-memos {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.agent-memo {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-soft); border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.agent-memo-input {
+  width: 100%; min-height: 72px; resize: vertical;
+  padding: 8px 10px; font-size: 12.5px; line-height: 1.7;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--text);
+}
+.agent-memo-actions { display: flex; justify-content: flex-end; }
+.agent-pending { margin-top: var(--space-4); }
+.agent-pending-title { font-weight: 500; margin-bottom: var(--space-2); }
+.agent-pending-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.agent-memo-item {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft); border-radius: 6px;
+  background: var(--surface);
+}
+.agent-memo-item.done { opacity: .62; }
+.agent-memo-main { flex: 1; min-width: 0; }
+.agent-memo-title { font-size: 12.5px; color: var(--text); }
+.agent-memo-preview {
+  font-size: 11.5px; color: var(--text-soft); margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.agent-memo-del { flex: none; }
+@media (max-width: 899px) {
+  .agent-memos { grid-template-columns: 1fr; }
+}
+/*「文风档案」侧栏按钮（语料分析师行下方）*/
+.side-archive-btn { margin: var(--space-3) 0 0; width: 100%; }
+/*批C 引导卡（2026-11-03）：右下角非阻塞滑入卡，与 partner 浮窗语言一致；
+  颜色全走语义变量。z-index 低于 partner 球浮层，不挡正事。 */
+.study-guide-card { position: fixed; right: 24px; bottom: 92px; z-index: 55;
+  width: 340px; max-height: 56vh; overflow-y: auto;
+  background: var(--surface-raised); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-4);
+  padding: var(--space-4); animation: rise var(--dur-4) var(--ease-out); }
+.study-guide-card .sgc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.study-guide-card .sgc-who { font-size: var(--fs-xs); color: var(--text-soft);
+  padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); }
+.study-guide-card .sgc-x { margin-left: auto; border: none; background: none;
+  color: var(--text-mute); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; }
+.study-guide-card .sgc-x:hover { color: var(--danger); }
+.study-guide-card .sgc-title { font-family: var(--font-brand); font-size: var(--fs-h2);
+  margin: 0 0 6px; color: var(--text); }
+.study-guide-card .sgc-body { font-size: var(--fs-sm); color: var(--text-soft); line-height: 1.7; }
+.study-guide-card .sgc-body p { margin: 0 0 6px; }
+.study-guide-card .sgc-foot { margin-top: 10px; display: flex; justify-content: flex-end; }
+.study-guide-card .sgc-ok { font-size: var(--fs-xs); padding: 4px 14px; }
+/*2026-11-04（使用向导 L1）：first-shelf 欢迎卡的三个「现在就试试」入口。
+  横向均分、窄屏换行；描边药丸与全局按钮族同风格。 */
+.study-guide-card .sgc-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.study-guide-card .sgc-act {
+  flex: 1 1 auto; text-align: center; font-size: var(--fs-xs); padding: 7px 12px;
+  cursor: pointer; color: var(--text-soft); background: var(--bg-sunken);
+  border: 1px solid var(--line-strong); border-radius: 999px; }
+.study-guide-card .sgc-act:hover {
+  color: var(--text); background: var(--surface-raised); border-color: var(--accent); }
+/*2026-10-30（作者第1条：阅读时伙伴改成右下角球+浮窗）：*/
+/*原来 .volume-partner 是 flex子项（侧栏），会把正文挤窄；改成绝对定位浮窗，不占版面。*/
+.partner-float { position: relative; }
+.volume-partner.floating {
+ position: fixed; right: 24px; bottom: 96px; z-index: 60;
+ width: 360px; max-height: 68vh;
+ border: 1px solid var(--line-strong); border-radius: var(--radius-lg);
+ background: var(--surface-raised); box-shadow: var(--shadow-4);
+ padding: var(--space-4);
+}
+.partner-ball {
+ position: fixed; right: 24px; bottom: 24px; z-index: 61;
+ width: 52px; height: 52px; border-radius: 50%;
+ display: flex; align-items: center; justify-content: center;
+ border: 1px solid var(--line-strong); background: var(--surface-raised);
+ box-shadow: var(--shadow-4); cursor: pointer;
+ font-size: 13px; color: var(--text);
+}
+.partner-ball:hover { background: var(--bg-sunken); }
+.partner-ball .icon { width: 22px; height: 22px; }
+
+/*2026-10-30（作者第2条：阅读排版太挤）：给正文加行高与段间距，正文放宽但每行别太长。*/
+.volume-article .md-preview {
+ line-height: 1.95;
+ font-size: 15px;
+ letter-spacing: .01em;
+}
+.volume-article .md-preview p { margin: 0 0 1.05em; }
+.volume-article .md-preview li { margin-bottom: .45em; }
+.volume-article .md-preview ul, .volume-article .md-preview ol { margin: 0 0 1.1em; padding-left: 1.5em; }
+.volume-article .md-preview blockquote {
+ margin: 1.1em 0; padding: .7em 1em;
+ border-left: 3px solid var(--line-strong); background: var(--bg-sunken);
+}
+.volume-article .md-preview h1, .volume-article .md-preview h2,
+.volume-article .md-preview h3, .volume-article .md-preview h4 {
+ margin: 1.6em 0 .7em; line-height: 1.5;
+}
+.volume-article .md-preview > *:first-child { margin-top: 0; }
+/*2026-10-30（作者第4条）：阅读笔记。
+锚点：每段右侧一个"+"（悬停才显）；有笔记时显示数字标记。
+为什么"悬停才显"：常驻一排加号会把阅读页弄成编辑器，作者想安静读书时很碍眼。 */
+.note-anchor { position: relative; }
+/*2026-10-30（作者第1条）：改到**段落末尾右侧**（原来挂在段落上方居中，不对）。*/
+.note-add, .note-flag {
+ position: absolute; right: -2em; bottom: .1em;
+ width: 1.7em; height: 1.7em; border-radius: 50%;
+ display: flex; align-items: center; justify-content: center;
+ font-size: 11px; line-height: 1; cursor: pointer;
+ border: 1px solid var(--line-soft); background: var(--surface); color: var(--text-mute);
+ opacity: 0; transition: opacity .15s;
+}
+.note-anchor:hover > .note-add { opacity: .85; }
+.note-add:hover { opacity: 1; background: var(--bg-sunken); }
+/* 有笔记的标记常显，颜色更实 */
+.note-flag { opacity: 1; background: var(--accent-soft, var(--bg-sunken)); color: var(--text); border-color: var(--line-strong); }
+@media (max-width: 1100px) {
+ .note-add, .note-flag { position: static; display: inline-flex; margin-left: .4em; vertical-align: middle; }
+}
+
+/* 笔记浮窗 */
+/*2026-10-30（作者第2条）：`display:flex` 会**盖掉 `hidden` 属性**，所以「关闭」点了没反应。*/
+.note-pad[hidden] { display: none !important; }
+.note-pad {
+ position: fixed; right: 24px; bottom: 96px; z-index: 71;
+ pointer-events: auto;
+ width: 380px; max-height: 62vh; overflow-y: auto;
+ border: 1px solid var(--line-strong); border-radius: var(--radius-lg);
+ background: var(--surface-raised); box-shadow: var(--shadow-4);
+ padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);
+}
+.note-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.note-head b { font-weight: 400; font-size: 13.5px; }
+.note-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.note-row { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: .6em .8em; }
+.note-row p { margin: 0 0 .35em; font-size: 13px; line-height: 1.7; }
+.note-row button { font-size: 11.5px; }
+.note-from { font-size: 11px; color: var(--text-mute); margin-bottom: .25em; }
+.note-input { min-height: 4.5em; }
+.note-search { width: 100%; }
+.note-foot { display: flex; justify-content: flex-end; gap: var(--space-2); }
+/*2026-10-31（作者）：我的书架改成「书封网格」。
+   欢迎页那套 .shelf/.book 是书脊样式（竖排、170px、左侧带竖线），
+   这里给书房的书架一个独立变体 shelf-cover，不去动欢迎页。
+   两处修正：①书名不再截成 5 字，整个竖排；②「N 章」移到书脊下方一行小字。*/
+.shelf-cover {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, 92px);
+  gap: 16px 18px; max-height: 46vh; overflow-y: auto;
+}
+.shelf-cover .book {
+  /*2026-10-31：旧 .shelf .book 把「底色+边框+阴影」画在 li 自己身上，
+    这里必须全部清掉，否则边框会连「N 章」一起框进去。*/
+  height: auto; cursor: pointer; padding: 0;
+  background: none; border: none; box-shadow: none;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.shelf-cover .book:hover { transform: none; box-shadow: none; border: none; }
+.shelf-cover .book::before { display: none; }
+.shelf-cover .book-cover {
+  position: relative; width: 92px; height: 132px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 3px 6px 6px 3px;
+  background: var(--surface); overflow: hidden;
+  box-shadow: var(--shadow-1);
+  transition: transform .15s, box-shadow .15s;
+}
+.shelf-cover .book:hover .book-cover {
+  transform: translateY(-3px); box-shadow: var(--shadow-3);
+  border-color: var(--line-strong);
+}
+.shelf-cover .book-title {
+  writing-mode: vertical-rl;
+  font-family: var(--font-brand); font-size: 13px; line-height: 1.55;
+  color: var(--text); letter-spacing: .02em;
+  max-height: 120px; overflow: hidden;
+}
+.shelf-cover .book-meta {
+  margin: 0; font-size: 11px; color: var(--text-mute);
+  max-width: 92px; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shelf-cover .book-gone .book-cover { opacity: .5; }
+.shelf-cover .book-gone .book-meta { color: var(--danger); }

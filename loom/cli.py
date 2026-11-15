@@ -1,0 +1,401 @@
+"""loom 的内部调试 CLI(产品形态是桌面客户端,见 docs/adr/0004)。
+
+保留它是为了无界面快速验证引擎。命令:init / seed / write / learn / status。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.tree import Tree
+
+from . import __version__, paths
+from .backends import LoomBackendError, cheap_backend, get_backend
+from .config import find_project_root, load_config
+from .state import load_state
+
+app = typer.Typer(add_completion=False, no_args_is_help=True, help="loom 引擎调试 CLI(产品是桌面客户端)")
+console = Console()
+
+
+def _die(msg: str) -> None:
+    console.print(f"[bold red]✗[/bold red] {msg}")
+    raise typer.Exit(code=1)
+
+
+# 错误 code(errors.py 目录键)→ 一行可操作提示。最小版只盖 余额/鉴权 两族,与 webui codeHint 同口径。
+_CODE_HINTS = {
+    "deepseek_insufficient_balance": "→ 去 platform.deepseek.com 充值后重试",
+    "deepseek_auth_failed": "→ 检查项目 .env 里的 DEEPSEEK_API_KEY",
+    "deepseek_key_missing": "→ 检查项目 .env 里的 DEEPSEEK_API_KEY",
+    "openai_compat_key_missing": "→ 检查项目 .env 里的供应商 API Key",
+    "openai_compat_key_rejected": "→ key 填了但被供应商拒了:去供应商后台查 token 是否过期/停用/欠费",
+}
+
+
+def _render(event: dict) -> None:
+    """把引擎进度事件渲染成 Rich 输出。"""
+    t = event.get("type")
+    if t == "agent_start":
+        _render._streamed = False
+        console.print(f"[bold cyan]▶ {event['role']} Agent[/bold cyan] …")
+    elif t == "agent_chunk":
+        import sys
+        sys.stdout.write(event["delta"])  # 流式:边写边吐(调试用)
+        sys.stdout.flush()
+        _render._streamed = True
+    elif t == "agent_done":
+        nl = "\n" if getattr(_render, "_streamed", False) else ""  # 只有真流式过才补收尾换行
+        console.print(f"{nl}[bold green]✓ {event['role']} Agent[/bold green] —— 已产出{event['produces']}")
+    elif t == "agent_skip":
+        console.print(f"[dim]⏭ {event['role']} —— 跳过(已完成、上游未变)[/dim]")
+    elif t == "gate_start":
+        if getattr(_render, "_streamed", False):
+            console.print()
+            _render._streamed = False  # 让复审标题另起一行,不黏在上游流式稿尾
+        console.print(f"  [magenta]🔍 {event['label']}复审 · 第{event['round']}轮[/magenta] …")
+    elif t == "gate_pass":
+        console.print(f"  [green]✓ {event['label']}通过[/green] [dim](无硬伤)[/dim]")
+    elif t == "gate_issues":
+        console.print(f"  [yellow]发现 {len(event['issues'])} 处硬伤:[/yellow]")
+        for it in event["issues"]:
+            ev = f" [dim]｜证据:「{it['证据']}」[/dim]" if it.get("证据") else ""
+            console.print(f"    [yellow]·[/yellow] {it['类别']}:{it['问题']}{ev}")
+    elif t == "gate_revise":
+        console.print("  [magenta]↻ 回炉重写中…[/magenta]")
+    elif t == "gate_exhausted":
+        console.print(f"  [yellow]⚠ {event['label']}跑满 {event['rounds']} 轮仍有 "
+                      f"{len(event['issues'])} 处残留 → 已记入留痕,不阻断,继续[/yellow]")
+    elif t == "edit_note":
+        console.print(f"  [dim]📝 本章改动留痕已存:{event['path']}[/dim]")
+    elif t == "warn":
+        console.print(f"  [yellow]· {event['message']}[/yellow]")
+    elif t == "info":
+        console.print(f"[cyan]▶ {event['message']}[/cyan]")
+    elif t == "chapter_done":
+        console.print()
+        console.print(Panel(event["preview"] + ("…" if event["chars"] > 300 else ""),
+                            title=f"第{event['chapter']}章 · 终稿前 300 字", border_style="green"))
+        console.print(f"[bold]终稿已落:[/bold] {event['path']}")
+    elif t in ("seed_done", "learn_done"):
+        console.print(f"[green]✓ 写作指纹已更新:[/green] {event['path']}")
+    elif t == "outline_done":
+        console.print(f"[green]✓ 第{event['chapter']}章细纲已生成[/green]")
+    elif t == "error":
+        console.print(f"[bold red]✗ {event['message']}[/bold red]")
+        hint = _CODE_HINTS.get(event.get("code", ""))
+        if hint:
+            console.print(f"  [dim]{hint}[/dim]")
+
+
+@app.command(help="离线铺一个写小说项目的骨架。")
+def init(name: str = typer.Argument(...),
+         genre: str = typer.Option(None, "--题材", "--genre", help="选一个题材,只拷一份题材速查进项目")) -> None:
+    from .scaffold import HIGHLIGHT, init as do_init
+
+    try:
+        target = do_init(name, genre=genre)
+    except (FileExistsError, FileNotFoundError) as e:
+        _die(str(e))
+    tree = Tree(f"[bold]{target.name}/[/bold]")
+    _walk(tree, target, target, HIGHLIGHT)
+    console.print(tree)
+    console.print(f"\n[green]✓ 骨架已就位(离线)。[/green] cd {name},填 .env,再 seed / write。")
+
+
+def _walk(node: Tree, path: Path, base: Path, highlight: str) -> None:
+    for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
+        rel = str(child.relative_to(base)).replace("\\", "/")
+        if rel in (paths.SNAPSHOT_DIR, ".loom_state.json"):
+            continue
+        if child.is_dir():
+            _walk(node.add(f"[blue]{child.name}/[/blue]"), child, base, highlight)
+        elif rel == highlight:
+            node.add(f"[bold yellow]★ {child.name}[/bold yellow]  [dim]← 越写越像你的核心[/dim]")
+        else:
+            node.add(child.name)
+
+
+@app.command(help="从样本提炼写作指纹(--参考 别人的原文范文:蒸出可作起点的指纹,此后靠你的改稿脱化)。")
+def seed(sample: Path = typer.Option(None, "--样本", "--sample", "-s"),
+         text: str = typer.Option(None, "--文本", "--text"),
+         inherit: Path = typer.Option(None, "--继承", "--inherit"),
+         reference: Path = typer.Option(None, "--参考", "--reference")) -> None:
+    from . import usecases
+
+    try:
+        root = find_project_root()
+        if reference is not None:
+            if not reference.exists():
+                _die(f"范文文件不存在:{reference}")
+            usecases.seed_fingerprint(root, reference=reference.read_text(encoding="utf-8"),
+                                      progress=_render)
+            return
+        if inherit is not None:
+            usecases.seed_fingerprint(root, inherit=inherit, progress=_render)
+            return
+        if sample is not None:
+            if not sample.exists():
+                _die(f"样本文件不存在:{sample}")
+            text = sample.read_text(encoding="utf-8")
+        if not text:
+            _die("给我点料:--样本 文件 / --文本 '一段字' / --继承 另一本书的指纹。")
+        usecases.seed_fingerprint(root, text=text, progress=_render)
+    except (LoomBackendError, FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="跑 5 个 Agent 写第 N 章。")
+def write(chapter: int = typer.Argument(...), force: bool = typer.Option(False, "--force", "-f")) -> None:
+    from . import usecases
+
+    try:
+        root = find_project_root()
+        rej = usecases.write_precheck(root, chapter, force)   # 三态检查单点在 usecases,措辞按 CLI
+        if rej:
+            _die({"chapter_drifted": f"第 {chapter} 章正文与上次记录不符(你手改过?)。"
+                                     f"先 learn {chapter},或加 --force 以你的正文为准重写。",
+                  "chapter_exists": f"第 {chapter} 章已写完。要重写加 --force。"}
+                 .get(rej["code"], rej["error"]))   # 新 code(brain_incomplete)用 precheck 自带文案,不 KeyError
+        config = load_config(root)
+        console.print(f"[dim]后端:{config.provider} · {config.model} · 终稿≈{config.chapter_chars}字[/dim]\n")
+        with usecases.write_lock(root):
+            usecases.write_chapter(root, chapter, _render, force=force, slow=0.3)
+    except (LoomBackendError, FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="把你对第 N 章的手改蒸馏进指纹。")
+def learn(chapter: int = typer.Argument(...)) -> None:
+    from . import usecases
+
+    try:
+        root = find_project_root()
+        cfg = load_config(root)
+        # 编排(含旧基线 neutral_default)单点在 usecases:与 server 同源,不再各修各的
+        rep = usecases.learn_chapter(root, chapter, get_backend(cfg), progress=_render,
+                                     appraisal_backend=cheap_backend(cfg))
+        ch = rep.changes
+        if ch["added"] or ch["removed"]:
+            console.print("\n[bold]本次指纹变化[/bold] [dim](学歪了?在 app 里点撤销,或删 外置大脑/.指纹历史/)[/dim]")
+            for l in ch["removed"]:
+                console.print(f"  [red]− {l}[/red]")
+            for l in ch["added"]:
+                console.print(f"  [green]+ {l}[/green]")
+    except (LoomBackendError, FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="看项目状态。")
+def status() -> None:
+    try:
+        root = find_project_root()
+    except FileNotFoundError as e:
+        _die(str(e))
+    st = load_state(root)
+    src = {"default": "中性默认(还没懂你)", "sample": "你的样本", "inherit": "继承自另一本书",
+           "reference": "别人的范文(起点,靠你的改稿脱化)"}.get(
+        st.get("fingerprint_source", "default"), st.get("fingerprint_source"))
+    console.print(f"[bold]写作指纹来源:[/bold] {src}")
+    learned = set(st.get("learned", []))
+    chapters = paths.chapter_numbers(root)
+    if not chapters:
+        console.print("[dim]还没写任何一章。[/dim]")
+        return
+    from .chaptertext import body_changed, parse_title
+    table = Table(title="章节状态")
+    for c in ("章", "标题", "写了", "你改过", "学进指纹"):
+        table.add_column(c)
+    for n in chapters:
+        out, snap = paths.chapter_path(root, n), paths.snapshot_path(root, n)
+        out_text = out.read_text(encoding="utf-8")
+        # 「改过」只看正文体(去标题再比),与 learn/drift 同口径:改标题不算手改
+        edited = snap.exists() and body_changed(out_text, snap.read_text(encoding="utf-8"))
+        table.add_row(f"第{n}章", parse_title(out_text) or "[dim]—[/dim]", "✓",
+                      "[green]✓[/green]" if edited else "—", "[green]✓[/green]" if n in learned else "—")
+    console.print(table)
+    try:                                  # 附赠摘要:任何异常都不该拖累 status
+        from .mirror import summary_line
+        line = summary_line(root)
+    except Exception:
+        line = ""
+    if line:
+        console.print(f"[dim]{line}[/dim]")
+
+
+@app.command(help="启动自检:检查 key/后端命令/agent/外置大脑齐不齐。")
+def doctor() -> None:
+    from .doctor import run_checks
+
+    try:
+        root = find_project_root()
+    except FileNotFoundError as e:
+        _die(str(e))
+    checks = run_checks(root)
+    if all(c.ok for c in checks):
+        console.print("[bold green]✓ 环境就绪,可以开写。[/bold green]")
+        raise typer.Exit(0)
+    table = Table(title="启动自检 · 待修复")
+    for col in ("检查项", "缺什么", "怎么补"):
+        table.add_column(col)
+    for c in checks:
+        if not c.ok:
+            table.add_row(f"[red]✗ {c.name}[/red]", c.missing, c.fix)
+    console.print(table)
+    raise typer.Exit(1)
+
+
+@app.command(help="离线拆一本参考书,抽可迁移框架(产物是候选,不进流水线)。")
+def deconstruct(source: Path = typer.Argument(..., help="参考书文本路径"),
+                name: str = typer.Option(None, "--名", "--name")) -> None:
+    from .deconstruct import deconstruct as do_deconstruct
+
+    try:
+        root = find_project_root()
+        if not source.exists():
+            _die(f"参考书文件不存在:{source}")
+        text = source.read_text(encoding="utf-8")
+        label = name or source.stem
+        out = do_deconstruct(root, text, label, get_backend(load_config(root)), _render)
+        console.print(Panel(
+            "产物在 [bold]外置大脑/.拆书/[/bold],只是候选。\n"
+            "要用:亲手把'条件框架'抄进 世界观.md;[red]专名黑名单别抄,写作指纹.md 永远别动[/red]。",
+            title=f"✓ 已拆:{label} → {out.name}", border_style="yellow"))
+    except (LoomBackendError, FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="把全书正文导出成一个 txt(发平台 / 留档用)。")
+def export() -> None:
+    from .archive import export_text
+
+    try:
+        r = export_text(find_project_root())
+        console.print(f"[green]✓ 已导出 {r['chapters']} 章、{r['chars']} 字:[/green] {r['path']}")
+    except (FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="把整本书打包成 zip 备份(不含密钥)。记得拷到云盘/U盘才算真备份。")
+def backup() -> None:
+    from .archive import backup_project
+
+    try:
+        r = backup_project(find_project_root())
+        console.print(f"[green]✓ 已备份:[/green] {r['path']}  [dim]({r['size'] // 1024} KB,留最近 {r['kept']} 份)[/dim]")
+        console.print("[yellow]提醒:把这个 zip 拷到云盘/U盘,才算真备份。[/yellow]")
+    except (FileNotFoundError, ValueError) as e:
+        _die(str(e))
+
+
+@app.command(help="打印版本。")
+def version() -> None:
+    console.print(f"Loom-mux v{__version__}")
+
+
+@app.command(help="实体词典(R2):盘点 / 建表 / 改名(默认只预览,加 --yes 才真改) / 重建索引。")
+def entities(
+    action: str = typer.Argument("scan", help="scan 盘点 | build 建表 | rename 改名 | rebuild 重建"),
+    old: str = typer.Argument("", help="rename:旧名字(正名 / id / 别名)"),
+    new: str = typer.Argument("", help="rename:新名字"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="rename:真执行(不加只预览)"),
+    create: bool = typer.Option(False, "--create", "-c", help="rebuild:表不存在时从 人物/ 抽一份"),
+) -> None:
+    from . import entities as ent
+
+    root = find_project_root()
+    if action == "scan":
+        info = ent.scan(root)
+        console.print(Panel(f"词典条目 [bold]{info['词典条目']}[/bold] 条", title="实体词典"))
+        for key in ("材料里的人物", "词典缺的人物", "词典多的人物", "别名冲突", "词典里没有的类别"):
+            vals = info[key]
+            if isinstance(vals, list):
+                console.print(f"  [bold]{key}[/bold]:{'、'.join(vals) if vals else '[dim]无[/dim]'}")
+        return
+    if action == "build":
+        r = ent.build(root, write=True)
+        console.print(f"[green]✓ 新增 {len(r['新增'])} 条[/green]")
+        for x in r["新增"]:
+            console.print(f"  {x['id']}  {x['正名']}  [dim](别名:{'、'.join(x['别名']) or '无'})[/dim]")
+        console.print(f"[yellow]{r['提示']}[/yellow]")
+        return
+    if action == "rename":
+        if not old or not new:
+            _die("用法:loom entities rename 旧名 新名 [--yes]")
+        r = ent.rename(root, old, new, confirm=yes)
+        if not r.get("ok"):
+            _die(r.get("reason") or "改名失败")
+        t = Table(title=f"改名预览:{old} → {new}" + ("(已执行)" if r["已执行"] else "(预览,加 --yes 才改)"))
+        for c in ("文件", "处", "示例"):
+            t.add_column(c)
+        for f in r["文件"]:
+            t.add_row(f["文件"], str(f["处"]), f["示例"])
+        console.print(t)
+        console.print(f"合计 [bold]{r['合计处数']}[/bold] 处;范围:{r['范围']};id 不变。")
+        return
+    if action == "rebuild":
+        r = ent.rebuild(root, create=create)
+        console.print(r)
+        return
+    _die(f"不认识的动作:{action}(scan / build / rename / rebuild)")
+
+
+@app.command(help="R1 一致性:md 是唯一真源,派生状态都是可丢弃的——重建实体索引,并补上缺的章材料基线。")
+def reconcile() -> None:
+    """R1 的验收是「删掉派生状态后一条命令能重建」。原来它只重解析实体表,
+    真把 `正文/.状态/*` 删了再跑,章状态/脏标检测照旧失明(交叉审查代码 P2)。
+
+    补基线只**补缺**,绝不覆盖已有的:已有基线的章一覆盖,它的「上游改过没」就被抹平了。
+    """
+    from . import chapterstate as cs
+    from . import entities as ent
+
+    root = find_project_root()
+    r = ent.rebuild(root, create=False)
+    console.print(Panel("md = 唯一真源。派生文件(.原稿 ledger / projects.json / 实体索引 / 章材料基线)全部可丢弃、可重建。",
+                        title="reconcile"))
+    console.print(f"  实体词典:{r['表']}  存在={r['存在']}  条目={r['条目']}")
+    if r.get("冲突"):
+        console.print(f"  [yellow]别名冲突:{'；'.join(r['冲突'])}[/yellow]")
+
+    # 补基线:只给「有正文、却没有基线」的章补一份,已有的一个字节不动
+    have_body = sorted(_chapter_numbers(root))
+    stamped, kept = [], []
+    for n in have_body:
+        if cs._base_path(root, n).is_file():
+            kept.append(n)
+            continue
+        try:
+            cs.stamp(root, n)
+            stamped.append(n)
+        except Exception as e:      # noqa: BLE001 - 单章补不上不该让整条命令崩
+            console.print(f"  [yellow]第 {n} 章基线没补上:{type(e).__name__}: {e}[/yellow]")
+    console.print(f"  章材料基线:已有 {len(kept)} 章,补了 {len(stamped)} 章"
+                  + (f"({', '.join('第%d章' % n for n in stamped[:8])}"
+                     + ("…" if len(stamped) > 8 else "") + ")" if stamped else ""))
+    console.print("  [dim]重建方式:loom entities rebuild --create(表不在时从 人物/ 抽一份)[/dim]")
+
+
+def _chapter_numbers(root) -> list[int]:
+    """正文里有哪些章(按文件名 `第N章.md`)。"""
+    import re as _re
+
+    from . import paths as _p
+
+    d = root / _p.BODY_DIR
+    if not d.is_dir():
+        return []
+    out = []
+    for f in d.glob("第*章.md"):
+        m = _re.fullmatch(r"第(\d+)章\.md", f.name)
+        if m:
+            out.append(int(m.group(1)))
+    return out
+
+
+if __name__ == "__main__":
+    app()

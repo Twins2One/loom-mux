@@ -1,0 +1,50 @@
+[project]
+name = "loom-novel"
+version = "0.8.12"
+description = "把一队分工 Agent 织成一条写小说流水线的命令行工具"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Two2One" }]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    # 无上限:openai 3.0 把传输层从 httpx 换成 httpx2,backends._http_transport 两个都认。
+    # 2026-08-12 曾临时钉 <3 止血(CI 双平台红),现已在 openai 2.46+httpx 与 3.0.0+httpx2
+    # 两套环境各跑一遍全量测试确认兼容,故解开。调用面(chat.completions.create 的
+    # model/messages/max_tokens/stream/temperature、models.list)在 3.0 未变,实测核对过。
+    "openai>=1.30",
+    "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    # pywebview 的 Windows 后端硬依赖 pythonnet;本项目**不使用**它的 CLR 窗口后端
+    # (见 docs/窗口化卡点-技术备忘.md),窗口由 Chrome/Edge 的 --app 承担。
+    "pywebview>=5.0",
+]
+
+[project.optional-dependencies]
+dist = ["pyinstaller>=6.0"]   # 打包成 .app/.exe:pip install -e ".[dist]"
+dev = ["pytest>=8.0", "pyyaml>=6.0", "build>=1.0"]   # 跑测试:pip install -e ".[dev]" && pytest
+#   build 是给 tests/test_wheel_build.py 用的:没它那条测试会 skip,
+#   而它护的正是「wheel 装不上」这类只有全新安装才暴露的缺陷——静默 skip 等于没护栏。
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.scripts]
+loom-app = "loom.desktop:run"      # 桌面客户端(原生窗口)
+loom-serve = "loom.desktop:serve"  # 兜底:浏览器里跑
+loom = "loom.cli:app"              # 内部引擎调试 CLI
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["loom"]
+
+# 不要再加 force-include:packages = ["loom"] 已经把 loom/ 整棵树(含 templates/webui)
+# 收进 wheel 了,再 force-include 一遍会让同一路径被添加两次,hatchling 直接报
+# 「A second file is being added to the wheel archive at the same path」构建失败。
+# 实测 v0.4.2 起 `pip install git+…` 就一直因此装不上(PyInstaller 包与
+# `pip install -e .` 不走 wheel 构建,所以一直没暴露)。见 tests/test_wheel_build.py。

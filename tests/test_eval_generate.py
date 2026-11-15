@@ -1,0 +1,660 @@
+"""Generation suite:evalapi 生成接缝 + 固定输入生成链路。零真实模型。"""
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from loom import evalapi
+from loom.evalapi import load_config
+from evals.generate import load_gen_case, prepare_project, generate_one, main
+from loom.parse import EDIT_NOTE_CLOSE, EDIT_NOTE_OPEN
+from conftest import ScriptedBackend
+
+_GEN_SEAM = ("run_pipeline", "scaffold_init", "load_config", "save_config",
+             "Config", "get_backend", "outline_path")
+
+
+def test_evalapi_generation_seam_exports():
+    # Phase 1 生成接缝:七个再导出必须存在且进 __all__(evals 只准走门面)
+    for name in _GEN_SEAM:
+        assert hasattr(evalapi, name), f"evalapi 缺生成接缝导出:{name}"
+        assert name in evalapi.__all__, f"{name} 未进 evalapi.__all__"
+
+
+_STEP_SEAM = ("PIPELINE", "load_ledger", "ledger_path", "scene_range",
+              "parse_scene_budgets", "split_edit_note", "STEP_SHORT_BUDGETS")
+
+
+def test_evalapi_step_attribution_seam_exports():
+    """棒级归因接缝:evals 复用产品判据必须走门面,不得在 evals 里重写一套(会漂)。"""
+    for name in _STEP_SEAM:
+        assert hasattr(evalapi, name), f"evalapi 缺棒级归因接缝导出:{name}"
+        assert name in evalapi.__all__, f"{name} 未进 evalapi.__all__"
+
+
+def test_scene_range_matches_scene_budget_string():
+    """数值形态与字符串形态必须同源——否则 evals 与 prompt 会各说各话。"""
+    from loom.agents import _scene_budget
+    for target, expect in ((800, (2, 3)), (2000, (3, 4)), (5000, (4, 6))):
+        lo, hi = evalapi.scene_range(target)
+        assert (lo, hi) == expect
+        assert _scene_budget(target) == f"拆 {lo}-{hi} 场"
+
+
+def test_pipeline_seam_is_the_six_steps():
+    """2026-10-20 六棒改造后的接缝:细纲三棒接力 → 写手 → 责任编辑 → 润色师。
+
+    旧的五棒(`设定师/大纲师/写手/编辑/润色师`)已不存在:「设定师」「大纲师」现在是
+    作者智库角色、不再进流水线,「编辑」也已改名「责任编辑」。期望值跟着 products
+    (`loom/agents.py` 的 STEPS)走,别在这里另抄一份。
+    """
+    assert evalapi.PIPELINE == ["章节细纲师", "章节设定师", "章节分镜师",
+                                "写手", "责任编辑", "润色师"]
+
+
+def _write_gen_case(tmp_path, *, with_outline=True):
+    d = tmp_path / "gen_case_src"
+    (d / "overlay" / "正文" / ".细纲").mkdir(parents=True)
+    (d / "case.json").write_text(json.dumps({
+        "id": "gen_test", "title": "生成测试例", "chapter_n": 1, "chapter_chars": 200,
+        "expect": {"must_include": ["矿灯"], "must_not_include": ["二中"]},
+    }, ensure_ascii=False), encoding="utf-8")
+    if with_outline:
+        (d / "overlay" / "正文" / ".细纲" / "第1章.md").write_text(
+            "固定细纲:分镜一醒来验伤;分镜二矿灯下遇人;分镜三末场倒计时钩。\n", encoding="utf-8")
+    return d
+
+
+def test_load_gen_case_validates_required_fields(tmp_path):
+    d = tmp_path / "bad"; d.mkdir()
+    (d / "case.json").write_text(json.dumps({"id": "x"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="chapter_n"):
+        load_gen_case(d)
+
+
+def test_prepare_project_applies_overlay_and_config(tmp_path):
+    case_dir = _write_gen_case(tmp_path)
+    case = load_gen_case(case_dir)
+    work = tmp_path / "work"; work.mkdir()
+    project = prepare_project(case_dir, case, work)
+    assert (project / "agents" / "写手.md").is_file()               # scaffold 骨架就绪
+    outline = (project / "正文" / ".细纲" / "第1章.md").read_text(encoding="utf-8")
+    assert outline.startswith("固定细纲")                            # overlay 盖上了
+    cfg = load_config(project)
+    assert cfg.chapter_chars == 200                                  # case 的字数进了 config
+    assert cfg.continuity_scan is False                              # 评测口径固定关(省一次调用)
+
+
+def test_gen_case_can_opt_into_continuity_scan(tmp_path):
+    """除虫此前被硬编码关死,评测里从没跑过。改成 case 可声明,缺省仍关。"""
+    from evals.generate import load_gen_case, prepare_project
+    d = tmp_path / "gc_scan"
+    (d).mkdir(parents=True)
+    (d / "case.json").write_text(json.dumps({
+        "id": "scan_on", "chapter_n": 1, "chapter_chars": 200,
+        "continuity_scan": True,
+    }, ensure_ascii=False), encoding="utf-8")
+    case = load_gen_case(d)
+    work = tmp_path / "w"; work.mkdir()
+    cfg = load_config(prepare_project(d, case, work))
+    assert cfg.continuity_scan is True
+
+
+def test_gen_case_continuity_scan_defaults_off(tmp_path):
+    from evals.generate import load_gen_case, prepare_project
+    case_dir = _write_gen_case(tmp_path)
+    case = load_gen_case(case_dir)
+    work = tmp_path / "w2"; work.mkdir()
+    cfg = load_config(prepare_project(case_dir, case, work))
+    assert cfg.continuity_scan is False, "缺省必须仍关——省一次调用,与既有 golden 同口径"
+
+
+# ── 六棒流水线(2026-10-20)的脚本 ──────────────────────────────────────────────
+# 棒序:`章节细纲师 → 章节设定师 → 章节分镜师 → 写手 → 责任编辑 → 润色师`,
+# 外挂两道关卡(责任编辑之后「质检」、润色师之后「去AI味」,各一次复审,回「通过」即过)
+# 与一次自动起标题。细纲盘上已有时(overlay)首棒「章节细纲师」被 WYSIWYG 旁路、不调模型。
+#
+# 细纲三棒是「接力覆盖写同一份细纲」:后一棒只在前一棒上**加**小节。**别随手把 L2/L3 改短**——
+# `agents._restore_missing_sections` 会在后一棒整节丢掉上一棒小节时追问一次模型,
+# 调用数就不再是下面钉死的定值了。
+_L1 = ("# 第 1 章细纲:废矿\n\n"
+       "## 基本信息\n- 预计字数:约 200 字\n\n"
+       "## 场景列表\n\n"
+       "### 场景 1:废矿深处(约 80 字)\n- 沈砚醒来验伤,确认重生。\n\n"
+       "### 场景 2:矿灯下遇人(约 70 字)\n- 巡矿人照面,藏起异状。\n\n"
+       "### 场景 3:倒计时钩(约 50 字)\n- 听见追兵,章末留钩。\n\n"
+       "## 写作提示\n- 开篇要冷\n")
+_L2 = _L1 + "\n## 设定核对\n- 主角沈砚;境界凡境;金手指为重生记忆;地点废弃矿场。\n"
+_L3 = _L2 + "\n## 镜头注释\n- 场景 1 以矿灯昏黄作光源;场景 3 用倒计时钩收尾。\n"
+
+# 正文三棒:终稿(_POLISHED)要 ≥40 字过终稿最短闸(200×12%=24,地板 40);避开翻转句
+# (「不是A而是B」会触发去AI味关卡的确定性预筛,多一次回炉调用)与禁词,含「矿灯」喂
+# must_include。责任编辑那棒必须带改动留痕哨兵,否则会触发「让它重来一次」。
+_DRAFT = "寅时三刻,铜锣未响。\n\n沈砚睁开眼,矿灯昏黄。\n\n他记得三年后的那一刀。"
+_EDITED = (_DRAFT + "\n" + EDIT_NOTE_OPEN + "\n《本章改动留痕》\n- 钩子更硬。\n" + EDIT_NOTE_CLOSE)
+_POLISHED = "寅时三刻,铜锣未响。\n\n沈砚睁开眼,矿灯昏黄。\n\n他记得三年后的那一刀,也记得递刀的人。"
+
+# overlay 细纲在盘上 → 首棒章节细纲师被旁路,全书 8 调。
+_GEN_BYPASS = [_L2, _L3, _DRAFT, _EDITED, "通过", _POLISHED, "通过", "矿灯"]
+# 无 overlay 细纲 → 六棒全跑,全书 9 调。
+_GEN_FULL = [_L1, _L2, _L3, _DRAFT, _EDITED, "通过", _POLISHED, "通过", "矿灯"]
+
+
+def test_generate_one_end_to_end_offline(tmp_path):
+    case_dir = _write_gen_case(tmp_path)
+    be = ScriptedBackend(list(_GEN_BYPASS))
+    run_dir = generate_one(case_dir, backend=be,
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    assert be.replies == []                                        # 恰好 8 调(调用数契约)
+    assert len(be.calls) == 8                                      # 耗尽不证「恰8调」,calls 钉死精确值
+    text = (run_dir / "chapter.md").read_text(encoding="utf-8")
+    assert "矿灯" in text and EDIT_NOTE_OPEN not in text           # 终稿落盘且无哨兵残留
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert report["case_id"] == "gen_test"
+    assert any(g["name"] == "关键要素" for g in report["graders"])  # 复用既有 grader 真跑了
+    assert not (case_dir / "chapter.md").exists()                  # 金标数据集目录零写入
+
+
+def test_generate_one_runs_never_collide(tmp_path):
+    case_dir = _write_gen_case(tmp_path)
+    kw = dict(runs_dir=tmp_path / "runs")
+    r1 = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                      workdir=tmp_path / "w1", **kw)
+    r2 = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                      workdir=tmp_path / "w2", **kw)
+    assert r1 != r2 and r1.exists() and r2.exists()                # 两次运行两个目录,零覆盖
+
+
+def test_manifest_traceability_fields(tmp_path):
+    case_dir = _write_gen_case(tmp_path)
+    run_dir = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    m = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert m["run_id"] == run_dir.name
+    assert m["git_commit"] and m["git_commit"] != "nogit"          # 本仓是 git 仓,必有 sha
+    assert m["backend_mode"] == "injected(测试)"
+    assert m["backend_class"] == "ScriptedBackend"                 # 实际后端类名,不撒谎
+    assert m["n_calls"] == 8 and len(m["calls"]) == 8              # 8 调契约进档
+    assert all(c["elapsed_s"] >= 0 and c["output_chars"] > 0 for c in m["calls"][:3])
+    assert m["tokens"] is None and m["cost"] is None               # 不造数
+    assert m["retries"] == 0
+    assert "usage" in m["notes"] or "代理指标" in m["notes"]        # 置空原因写明
+
+
+def test_manifest_hashes_stable_and_sensitive(tmp_path):
+    case_dir = _write_gen_case(tmp_path)
+    kw = dict(runs_dir=tmp_path / "runs")
+    m1 = json.loads((generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                                  workdir=tmp_path / "w1", **kw) / "manifest.json").read_text(encoding="utf-8"))
+    m2 = json.loads((generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                                  workdir=tmp_path / "w2", **kw) / "manifest.json").read_text(encoding="utf-8"))
+    assert m1["prompt_hash"] == m2["prompt_hash"]                  # 同输入同 prompt → hash 稳定
+    assert m1["dataset_hash"] == m2["dataset_hash"]
+    # 数据集变一个字 → dataset_hash 必变(细纲走章节细纲师旁路直接落盘,需过 STEP 最短闸 min_chars=8,
+    # 故内容比"改了的细纲"更长,只为不触发无关的过短校验,不改变本测试意图)
+    (case_dir / "overlay" / "正文" / ".细纲" / "第1章.md").write_text(
+        "改动后的细纲:分镜一如常。\n", encoding="utf-8")
+    m3 = json.loads((generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                                  workdir=tmp_path / "w3", **kw) / "manifest.json").read_text(encoding="utf-8"))
+    assert m3["dataset_hash"] != m1["dataset_hash"]
+
+
+def test_generate_one_collects_all_step_outputs(tmp_path):
+    """六棒产物必须落进 run_dir/steps/;被 WYSIWYG 旁路的章节细纲师记 skipped(不是 0 分)。"""
+    from evals.generate import generate_one
+    case_dir = _write_gen_case(tmp_path)          # with_outline=True → 章节细纲师被旁路
+    run_dir = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    steps_dir = run_dir / "steps"
+    assert steps_dir.is_dir()
+    assert (steps_dir / "章节设定师.md").read_text(encoding="utf-8") == _L2
+    assert (steps_dir / "写手.md").read_text(encoding="utf-8") == _DRAFT
+    assert (steps_dir / "润色师.md").is_file()
+    # 章节细纲师被 overlay 细纲旁路 → 没有产物文件,且 steps.json 明确记 skipped
+    assert not (steps_dir / "章节细纲师.md").exists()
+    meta = json.loads((run_dir / "steps.json").read_text(encoding="utf-8"))
+    assert meta["章节细纲师"] == "skipped", "旁路≠失败,必须记 skipped 不记 0 分"
+    assert meta["章节设定师"] == "collected"
+
+
+def test_collect_steps_without_outline_overlay_collects_outliner(tmp_path):
+    """无 overlay 细纲时细纲三棒真跑,末棒(章节分镜师)的产物必须被收到。"""
+    from evals.generate import generate_one
+    case_dir = _write_gen_case(tmp_path, with_outline=False)
+    run_dir = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_FULL)),
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    assert (run_dir / "steps" / "章节分镜师.md").read_text(encoding="utf-8") == _L3
+    meta = json.loads((run_dir / "steps.json").read_text(encoding="utf-8"))
+    assert meta["章节细纲师"] == "collected"
+    assert meta["章节分镜师"] == "collected"
+
+
+def test_step_report_written_and_names_weakest_step(tmp_path):
+    """闭环的交付物:step_report.json 要能直接回答「该改哪一棒」。"""
+    from evals.generate import generate_one
+    case_dir = _write_gen_case(tmp_path, with_outline=False)
+    # 写手交的初稿里没有 must_include 的「矿灯」→ 写手·必含要素 应当失败并被点名。
+    # 篇幅刻意 ≥40 字(chapter_profile(200)=max(40, 200*0.12)=40)——这份文本被脚本复用为
+    # 终稿(润色师那一步同样返回它),太短会先撞上终稿非空硬闸,根本走不到 step_report。
+    draft_no_lamp = ("寅时三刻，铜锣未响。\n\n沈砚睁开眼，四肢发麻，伤口隐隐作痛，"
+                     "他撑着墙壁缓缓站起。\n\n他记得三年后的那一刀，也记得那人转身时留下的背影。")
+    edited = draft_no_lamp + "\n" + EDIT_NOTE_OPEN + "\n- 钩子更硬。\n" + EDIT_NOTE_CLOSE
+    be = ScriptedBackend([_L1, _L2, _L3, draft_no_lamp, edited,
+                          "通过", draft_no_lamp, "通过", "标题"])
+    run_dir = generate_one(case_dir, backend=be,
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    rep = json.loads((run_dir / "step_report.json").read_text(encoding="utf-8"))
+    # 2026-10-26 口径第二次变:细纲三棒补回,体检表覆盖 **六棒**
+    # (设计稿与 5 章真机实测见 docs/细纲三棒体检项-设计稿-v2-定稿-20261026.md)。
+    assert set(rep["steps"]) == {"章节细纲师", "章节设定师", "章节分镜师",
+                                 "写手", "责任编辑", "润色师"}
+    assert rep["report_version"] == "v3" and len(rep["rules_sha"]) == 16
+    names = [g["name"] for g in rep["steps"]["写手"]]
+    assert "写手·必含要素" in names
+    failed = [g for g in rep["steps"]["写手"] if g["name"] == "写手·必含要素"][0]
+    assert failed["passed"] is False
+    # 2026-10-26 起最弱棒按「棒内严重度」排,并且允许并列(weakest=None + weakest_ties)。
+    # 这条用例喂的是假后端产出的垃圾细纲,细纲三棒自己也会红,所以不再断言"唯一最弱=写手",
+    # 而是断言:写手确实红了、点名只从红榜里出、且没有把红榜第一位漏给别的棒。
+    red_roles = [d["role"] for d in rep["reds"]]
+    assert "写手" in red_roles, rep["reds"]
+    if rep["weakest"] is not None:
+        assert rep["weakest"] == rep["reds"][0]["role"]
+    else:
+        assert "写手" in (rep.get("weakest_ties") or []), rep.get("weakest_ties")
+
+
+
+def test_step_report_marks_bypassed_outliner_skipped_not_failed(tmp_path):
+    """首棒被 WYSIWYG 旁路时不得被点名成最弱棒——旁路不是失败。"""
+    from evals.generate import generate_one
+    case_dir = _write_gen_case(tmp_path)                 # with_outline=True → 旁路
+    run_dir = generate_one(case_dir, backend=ScriptedBackend(list(_GEN_BYPASS)),
+                           runs_dir=tmp_path / "runs", workdir=tmp_path / "work")
+    meta = json.loads((run_dir / "steps.json").read_text(encoding="utf-8"))
+    assert meta["章节细纲师"] == "skipped", "旁路那棒这一跑没调模型,不能记成 collected"
+    rep = json.loads((run_dir / "step_report.json").read_text(encoding="utf-8"))
+    # skipped 项一律 gating=False,于是永远进不了「最弱棒」的门禁判定(旁路不是失败)。
+    # 2026-10-26 起细纲三棒也进体检表,所以旁路的那一棒**在表里**,但每一项都必须是 [skipped]
+    # ——「在表里」和「被判失败」是两件事,判据是 detail 前缀与 gating。
+    items = rep["steps"]["章节细纲师"]
+    assert items and all(str(g.get("detail", "")).startswith("[skipped]") for g in items), \
+        "旁路那一棒的体检项必须全记 skipped"
+    assert not any(g["gating"] for g in items), "skipped 项不得参与门禁"
+    assert rep["weakest"] != "章节细纲师"
+    assert "章节细纲师" not in (rep.get("weakest_ties") or [])
+    # 门禁本身还在(否则「不被点名」可能是靠把门禁全关掉换来的,那就等于没测)
+    assert any(g["gating"] for g in rep["steps"]["写手"])
+
+
+def test_gen_02_exists_and_has_no_outline_overlay():
+    """gen_02 存在的唯一理由就是让大纲师真跑——它一旦带了 overlay 细纲就白设了。"""
+    from evals.generate import GEN_CASES_DIR, load_gen_case
+    d = GEN_CASES_DIR / "gen_02_mine_escape"
+    assert (d / "case.json").is_file(), "缺 gen_02:大纲师这一棒没有任何 case 覆盖"
+    case = load_gen_case(d)
+    assert case["id"] == "gen_02_mine_escape"
+    assert not (d / "overlay" / "正文" / ".细纲").exists(), \
+        "gen_02 不得带 overlay 细纲,否则大纲师又被 WYSIWYG 旁路"
+    assert case["expect"]["must_include"], "得有必含要素,否则大纲师的必含体检没内容可查"
+
+
+def test_cli_unknown_case_is_infra_2(tmp_path):
+    (tmp_path / "gc").mkdir()
+    assert main(["--case", "不存在", "--cases-dir", str(tmp_path / "gc"),
+                 "--runs-dir", str(tmp_path / "runs")]) == 2
+
+
+def test_cli_empty_cases_dir_is_infra_2(tmp_path):
+    (tmp_path / "gc").mkdir()
+    assert main(["--cases-dir", str(tmp_path / "gc"), "--runs-dir", str(tmp_path / "runs")]) == 2
+
+
+def test_cli_demo_mode_end_to_end(tmp_path, monkeypatch):
+    # demo 模式离线冒烟:证明 CLI→generate_one→DemoBackend 链路通(不证明生成质量)。
+    # monkeypatch 先设 LOOM_DEMO,保证 teardown 复原、不串染其它测试。
+    monkeypatch.setenv("LOOM_DEMO", "1")
+    src = _write_gen_case(tmp_path)
+    gc = tmp_path / "gc"; gc.mkdir()
+    shutil.copytree(src, gc / "gen_test")
+    code = main(["--cases-dir", str(gc), "--runs-dir", str(tmp_path / "runs")])
+    assert code == 0
+    runs = list((tmp_path / "runs").iterdir())
+    assert len(runs) == 1
+    assert (runs[0] / "manifest.json").is_file() and (runs[0] / "report.json").is_file()
+    m = json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
+    assert m["backend_class"] == "DemoBackend"        # 罐头后端如实入档
+
+
+def test_run_batch_produces_summary_with_distributions(tmp_path):
+    from evals.generate import run_batch
+    case_dir = _write_gen_case(tmp_path)
+    batch = run_batch(case_dir, repeat=3, runs_dir=tmp_path / "runs",
+                      backend_factory=lambda: ScriptedBackend(list(_GEN_BYPASS)),
+                      workdir_root=tmp_path / "work")
+    assert (batch / "summary.json").is_file() and (batch / "summary.md").is_file()
+    assert len(list((batch / "runs").iterdir())) == 3
+    summ = json.loads((batch / "summary.json").read_text(encoding="utf-8"))
+    assert summ["n_total"] == 3 and summ["n_valid"] == 3
+    assert summ["case_id"] == "gen_test"
+    w = summ["steps"]["写手"]["写手·必含要素"]
+    assert w["median"] is not None and w["n_valid"] == 3
+
+
+def test_run_batch_survives_a_crashed_run_and_reports_honestly(tmp_path):
+    """第 2 次崩了不能丢掉第 1、3 次;而且必须照实写 3 次里 2 次有效。"""
+    from evals.generate import run_batch
+    case_dir = _write_gen_case(tmp_path)
+    seq = iter([ScriptedBackend(list(_GEN_BYPASS)),
+                ScriptedBackend([]),                    # 空脚本 → 空响应 → 写盘闸抛错
+                ScriptedBackend(list(_GEN_BYPASS))])
+    batch = run_batch(case_dir, repeat=3, runs_dir=tmp_path / "runs",
+                      backend_factory=lambda: next(seq),
+                      workdir_root=tmp_path / "work")
+    summ = json.loads((batch / "summary.json").read_text(encoding="utf-8"))
+    assert summ["n_total"] == 3 and summ["n_valid"] == 2
+    md = (batch / "summary.md").read_text(encoding="utf-8")
+    assert "3 次里 2 次有效" in md, "必须照实披露掉数,不得拿 2 次冒充 3 次"
+    # 光看 summary 数字不够——batch/runs/ 目录本身也得如实反映:
+    # 两次成功跑的产物目录(带 step_report.json)都得在,第 2 次(i=1)崩的那次
+    # 要留 infra_1.txt 标记。(不额外断言 batch/runs 下条目总数——generate_one
+    # 在跑 pipeline 前就先 mkdir 了 run_dir,下游崩溃会留一个空壳目录,那是
+    # generate_one 自身早已有的行为,不属于本次三个 finding 的范围。)
+    entries = list((batch / "runs").iterdir())
+    completed = [p for p in entries if p.is_dir() and (p / "step_report.json").is_file()]
+    assert len(completed) == 2, "两次成功跑的 run 目录(带完整产物)都必须留着"
+    assert (batch / "runs" / "infra_1.txt").is_file(), "崩的那次(i=1)要留 infra 标记"
+
+
+def test_run_batch_batch_id_collision_gets_distinct_paths(tmp_path, monkeypatch):
+    """同一秒内两次 run_batch 撞 batch_id 不得硬崩——比照 generate_one 的 run_id 撞车重试。
+
+    time.strftime 钉死同一秒,逼真撞车(而非"日常大概率不会同一秒"这种脆弱假设)。
+    """
+    import evals.generate as gen_mod
+    monkeypatch.setattr(gen_mod.time, "strftime", lambda *a: "20260101-000000")
+    case_dir = _write_gen_case(tmp_path)
+    b1 = gen_mod.run_batch(case_dir, repeat=1, runs_dir=tmp_path / "runs",
+                           backend_factory=lambda: ScriptedBackend(list(_GEN_BYPASS)),
+                           workdir_root=tmp_path / "work1")
+    b2 = gen_mod.run_batch(case_dir, repeat=1, runs_dir=tmp_path / "runs",
+                           backend_factory=lambda: ScriptedBackend(list(_GEN_BYPASS)),
+                           workdir_root=tmp_path / "work2")
+    assert b1 != b2, "撞车的两个批次必须落到不同目录,而不是互相覆盖"
+    assert b1.exists() and b2.exists()
+    assert (b1 / "summary.json").is_file() and (b2 / "summary.json").is_file()
+
+
+def test_run_batch_workdir_mkdir_failure_is_infra_not_fatal(tmp_path):
+    """第 2 次(i=1)的 workdir 建目录失败,必须记 infra 继续跑完,不能让整批带着已收的成果崩出去。"""
+    from evals.generate import run_batch
+    case_dir = _write_gen_case(tmp_path)
+    workdir_root = tmp_path / "work"
+    workdir_root.mkdir()
+    # 预先在 w1 位置放一个文件(不是目录)——generate_one 内部 i=1 时 wd.mkdir() 必炸。
+    (workdir_root / "w1").write_text("占位文件,顶替本该是目录的位置", encoding="utf-8")
+    batch = run_batch(case_dir, repeat=3, runs_dir=tmp_path / "runs",
+                      backend_factory=lambda: ScriptedBackend(list(_GEN_BYPASS)),
+                      workdir_root=workdir_root)
+    assert (batch / "summary.json").is_file(), "workdir 建目录失败也必须走到 summary 落盘"
+    summ = json.loads((batch / "summary.json").read_text(encoding="utf-8"))
+    assert summ["n_total"] == 3 and summ["n_valid"] == 2, "1 次因 workdir 而 infra,其余 2 次照收"
+    assert (batch / "runs" / "infra_1.txt").is_file(), "workdir mkdir 失败要老实记成该次的 infra"
+
+
+def test_run_batch_all_runs_crashed_is_infra(tmp_path):
+    from evals.generate import run_batch
+    case_dir = _write_gen_case(tmp_path)
+    batch = run_batch(case_dir, repeat=2, runs_dir=tmp_path / "runs",
+                      backend_factory=lambda: ScriptedBackend([]),
+                      workdir_root=tmp_path / "work")
+    summ = json.loads((batch / "summary.json").read_text(encoding="utf-8"))
+    assert summ["n_valid"] == 0 and summ["steps"] == {}
+
+
+def _fake_batch(tmp_path, name, *, median, lo, hi, n_valid=3, scores=None):
+    """scores=None 模拟【老批次】(summary.json 没存原始分数)→ 走区间回退判据。
+    给了 scores 就走现行的 Mann-Whitney 判据。"""
+    b = tmp_path / name
+    b.mkdir(parents=True)
+    item = {"median": median, "lo": lo, "hi": hi, "n_valid": n_valid, "n_total": 3}
+    if scores is not None:
+        item["scores"] = scores
+        item["n_valid"] = len(scores)
+        item["n_total"] = len(scores)
+    (b / "summary.json").write_text(json.dumps({
+        "case_id": "gen_test", "batch_id": name, "n_total": 3, "n_valid": n_valid,
+        "weakest": None,
+        "steps": {"写手": {"写手·必含要素": item}},
+    }, ensure_ascii=False), encoding="utf-8")
+    return b
+
+
+def test_compare_declares_improvement_only_when_ranges_separate(tmp_path):
+    from evals.generate import compare_batches
+    a = _fake_batch(tmp_path, "a", median=0.2, lo=0.1, hi=0.3)
+    b = _fake_batch(tmp_path, "b", median=0.8, lo=0.7, hi=0.9)
+    res = compare_batches(a, b)
+    item = res["items"][0]
+    assert item["verdict"] == "改进" and item["delta"] == pytest.approx(0.6)
+    assert res["n_improved"] == 1 and res["n_regressed"] == 0
+
+
+def test_compare_refuses_to_call_it_improvement_when_not_significant(tmp_path):
+    """中位数涨了但证不出差异——必须判「分不出」,这是本工具最重要的一条纪律。
+
+    纪律没变,变的只是判据:2026-08-10 起由 min~max 区间重叠换成 Mann-Whitney p。
+    换的理由见 aggregate.mannwhitney_p——旧判据不随 N 收窄,把真实改进判成了假阴性。
+    """
+    from evals.generate import compare_batches
+    # 中位数 0.5 → 0.6,但样本高度重叠,秩检验证不出
+    a = _fake_batch(tmp_path, "a", median=0.5, lo=0.3, hi=0.7,
+                    scores=[0.3, 0.4, 0.5, 0.6, 0.7])
+    b = _fake_batch(tmp_path, "b", median=0.6, lo=0.35, hi=0.85,
+                    scores=[0.35, 0.5, 0.6, 0.7, 0.85])
+    item = compare_batches(a, b)["items"][0]
+    assert item["verdict"].startswith("分不出(p=")
+    assert item["delta"] > 0                      # 中位数确实涨了
+    assert compare_batches(a, b)["n_improved"] == 0   # 但不许宣称改进
+
+
+def test_compare_falls_back_to_range_for_legacy_batches_and_says_so(tmp_path):
+    """老批次的 summary.json 没有 scores,只能退回区间判据——但必须标明成色,
+    否则两种成色的结论混在一起,读者分不出哪条是 p 值撑的、哪条是旧区间撑的。"""
+    from evals.generate import compare_batches
+    a = _fake_batch(tmp_path, "a", median=0.50, lo=0.30, hi=0.70)
+    b = _fake_batch(tmp_path, "b", median=0.62, lo=0.40, hi=0.85)
+    item = compare_batches(a, b)["items"][0]
+    assert item["verdict"] == "分不出(区间重叠·老批次)"
+    assert item["method"] == "旧判据(区间重叠)"
+    assert item["p_value"] is None                # 没算 p,就不许装作算了
+    assert compare_batches(a, b)["n_improved"] == 0
+
+
+def test_compare_flags_regression_when_ranges_separate_downward(tmp_path):
+    from evals.generate import compare_batches
+    a = _fake_batch(tmp_path, "a", median=0.9, lo=0.85, hi=0.95)
+    b = _fake_batch(tmp_path, "b", median=0.3, lo=0.2, hi=0.4)
+    res = compare_batches(a, b)
+    assert res["items"][0]["verdict"] == "回归" and res["n_regressed"] == 1
+
+
+def test_compare_says_no_data_when_a_side_is_all_infra(tmp_path):
+    from evals.generate import compare_batches
+    a = _fake_batch(tmp_path, "a", median=0.5, lo=0.4, hi=0.6)
+    b = _fake_batch(tmp_path, "b", median=None, lo=None, hi=None, n_valid=0)
+    assert compare_batches(a, b)["items"][0]["verdict"] == "无数据"
+
+
+def test_compare_does_not_silently_drop_items_exclusive_to_batch_b(tmp_path):
+    """b 独有的 (role, item)——两批 case 不同、或某棒在 a 批被旁路——不得从报告里消失。
+
+    只遍历 a 的键会把 b 独有项静默丢掉:改完 prompt 后新增的体检项、或 a 批
+    因旁路完全没跑到的棒,report 里会看不见,这与"不让人漏看变化"的宗旨相悖。
+    """
+    from evals.generate import compare_batches
+    a = _fake_batch(tmp_path, "a", median=0.5, lo=0.4, hi=0.6)
+    b = _fake_batch(tmp_path, "b", median=0.5, lo=0.4, hi=0.6)
+    sb = json.loads((b / "summary.json").read_text(encoding="utf-8"))
+    sb["steps"]["大纲师"] = {"大纲师·场景数": {"median": 0.9, "lo": 0.8, "hi": 1.0,
+                                          "n_valid": 3, "n_total": 3}}
+    (b / "summary.json").write_text(json.dumps(sb, ensure_ascii=False), encoding="utf-8")
+
+    res = compare_batches(a, b)
+    keys = {(it["step"], it["item"]) for it in res["items"]}
+    assert ("大纲师", "大纲师·场景数") in keys, "b 独有项被静默丢掉了"
+    only_b = [it for it in res["items"] if it["step"] == "大纲师"][0]
+    assert only_b["verdict"] == "无数据" and only_b["before"] is None
+    assert only_b["after"]["median"] == pytest.approx(0.9)
+    # a 独有项(若反过来)同理必须出现——用同一断言口径覆盖对称情形
+    assert len(res["items"]) == 2, "两批合计两个 (role,item) 键,一个都不能丢"
+
+
+def test_summary_md_zero_row_distinguishes_infra_from_skip(tmp_path):
+    """0/n_total 的行此前一律写「全 skipped 或全 infra」,不说是哪种——聚合层能精确算出
+    有几次是整体 infra、有几次是有效跑但这一项 skipped/not-measurable(Important-1),
+    不该继续含糊带过。
+    """
+    from evals.generate import _summary_md
+    agg = {
+        "n_total": 3, "n_valid": 2, "weakest": None,
+        "steps": {"写手": {"写手·AI翻转句": {"median": None, "lo": None, "hi": None,
+                                          "n_valid": 0, "n_total": 3}}},
+    }
+    md = _summary_md("gen_test", agg, "batch1")
+    assert "全 skipped 或全 infra" not in md
+    assert "1 次" in md and "整体 infra" in md
+    assert "2 次" in md and "skipped" in md and "not-measurable" in md
+
+
+def test_summary_md_zero_row_all_valid_but_always_unmeasured(tmp_path):
+    """没有任何一次是 infra,但这一项每次有效跑都测不出(如 编辑·留痕围栏 恒
+    not-measurable)——不该硬凑一句「0 次整体 infra」这种废话。
+    """
+    from evals.generate import _summary_md
+    agg = {
+        "n_total": 3, "n_valid": 3, "weakest": None,
+        "steps": {"编辑": {"编辑·留痕围栏": {"median": None, "lo": None, "hi": None,
+                                        "n_valid": 0, "n_total": 3}}},
+    }
+    md = _summary_md("gen_test", agg, "batch1")
+    assert "整体 infra" not in md
+    assert "3 次" in md and "skipped" in md and "not-measurable" in md
+
+
+def test_cli_compare_requires_two_batches(tmp_path):
+    from evals.generate import main
+    assert main(["--compare", str(tmp_path / "nope")]) == 2
+
+
+def test_cli_compare_refuses_when_a_side_has_zero_valid_runs(tmp_path, capsys):
+    """规格要求:任一批 n_valid==0 → 拒绝出结论,退出 2。此前代码直接调
+    compare_batches 拿到「无数据」verdict 并返回 0——脚本读到 0 会以为"比对干净、
+    没有回归",这正是不造数红线要拦住的假阴性(Important-2)。
+    """
+    from evals.generate import main
+    a = _fake_batch(tmp_path, "a", median=None, lo=None, hi=None, n_valid=0)
+    b = _fake_batch(tmp_path, "b", median=0.5, lo=0.4, hi=0.6)
+    code = main(["--compare", str(a), str(b)])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "n_valid" in out or "有效" in out
+
+
+def test_cli_compare_refuses_when_case_ids_differ(tmp_path, capsys):
+    """两批的 case_id 不一致时(比如误拿 gen_01 的批次去比 gen_02),不该继续套用
+    a 批的 case_id 当标题、照样吐改进/回归结论——那是拿不同 case 的分布硬比
+    (Important-2)。
+    """
+    from evals.generate import main
+    a = _fake_batch(tmp_path, "a", median=0.5, lo=0.4, hi=0.6)
+    b = _fake_batch(tmp_path, "b", median=0.5, lo=0.4, hi=0.6)
+    sb = json.loads((b / "summary.json").read_text(encoding="utf-8"))
+    sb["case_id"] = "gen_other_case"
+    (b / "summary.json").write_text(json.dumps(sb, ensure_ascii=False), encoding="utf-8")
+    code = main(["--compare", str(a), str(b)])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "gen_test" in out and "gen_other_case" in out
+
+
+def test_cli_compare_prints_role_once_not_doubled(tmp_path, capsys):
+    """generate.py:446 此前拼 f"{it['step']}·{it['item']}",但 item 已经是完整 grader
+    名(自带角色前缀,如「写手·必含要素」)——每行都印成「写手·写手·必含要素」。
+    这是整条分支的主要人读产物(Important-3),角色只能出现一次。
+    """
+    from evals.generate import main
+    a = _fake_batch(tmp_path, "a", median=0.2, lo=0.1, hi=0.3)
+    b = _fake_batch(tmp_path, "b", median=0.8, lo=0.7, hi=0.9)
+    code = main(["--compare", str(a), str(b)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "写手·写手·必含要素" not in out
+    assert "写手·必含要素" in out
+
+
+def test_compare_surfaces_sample_counts_for_thin_batches(tmp_path, capsys):
+    """n_valid==1 时 distribution() 给出零宽区间(lo==hi==median),两个不同的零宽
+    区间几乎必然不重叠——于是判据据实吐出「改进」,但那只是 1 次跑 vs 1 次跑的结果。
+    读者必须能从输出里看出这是薄比对,不能让 1-of-N 和 N-of-N 打印得一模一样。
+    """
+    from evals.generate import compare_batches, main
+    a = _fake_batch(tmp_path, "a", median=0.2, lo=0.2, hi=0.2, n_valid=1)
+    b = _fake_batch(tmp_path, "b", median=0.8, lo=0.8, hi=0.8, n_valid=1)
+
+    res = compare_batches(a, b)
+    item = res["items"][0]
+    assert item["verdict"] == "改进"  # 零宽区间不重叠,判据本身没错——问题是样本数不可见
+    assert item["n_valid_before"] == 1 and item["n_total_before"] == 3
+    assert item["n_valid_after"] == 1 and item["n_total_after"] == 3
+
+    code = main(["--compare", str(a), str(b)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "1/3" in out, f"CLI 打印里看不到样本数,thin 比对和 solid 比对长得一样:{out!r}"
+
+
+def test_cli_repeat_flag_returns_2_when_all_infra(tmp_path, monkeypatch):
+    """全 infra → 退出码 2(沿用三态),不得当成质量结论。"""
+    monkeypatch.setenv("LOOM_DEMO", "1")
+    from evals.generate import main
+    src = _write_gen_case(tmp_path)
+    gc = tmp_path / "gc"; gc.mkdir()
+    shutil.copytree(src, gc / "gen_test")
+    # chapter_chars 设成天文数字,DemoBackend 罐头文本必然过不了终稿最短闸 → 每次都崩
+    case_path = gc / "gen_test" / "case.json"
+    case = json.loads(case_path.read_text(encoding="utf-8"))
+    case["chapter_chars"] = 900000
+    case_path.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
+    code = main(["--cases-dir", str(gc), "--runs-dir", str(tmp_path / "runs"), "--repeat", "2"])
+    assert code == 2
+
+
+def test_agent模式端到端跑通并从轨迹收齐五棒(tmp_path, monkeypatch):
+    """P4:`--agentic` 那条路的整链冒烟(不证明生成质量,只证明【量得了】)。
+
+    钉三件事:
+    ① manifest 记下这一跑走的是哪条引擎——批次之间要分得清,否则 A/B 比的是什么都说不准;
+    ② 五棒产物真的收得到。agent 模式【不写 ledger】,这些产物只可能来自轨迹
+      (`正文/.轨迹/第N章.jsonl`)——收到了就等于产物级归因这条接线是通的;
+    ③ 老流水线那条路一个字没改坏(同一 case 跑两遍,两边都齐)。
+    """
+    monkeypatch.setenv("LOOM_DEMO", "1")
+    src = _write_gen_case(tmp_path)
+    gc = tmp_path / "gc"; gc.mkdir()
+    shutil.copytree(src, gc / "gen_test")
+
+    for agentic, want_engine in ((True, "agentic"), (False, "pipeline")):
+        runs = tmp_path / f"runs-{want_engine}"
+        argv = ["--cases-dir", str(gc), "--runs-dir", str(runs)]
+        if agentic:
+            argv.append("--agentic")
+        assert main(argv) == 0
+        run = next(iter(runs.iterdir()))
+        m = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+        assert m["engine"] == want_engine
+        status = json.loads((run / "steps.json").read_text(encoding="utf-8"))
+        assert status, "steps.json 是空的"
+        assert any(v == "collected" for v in status.values()), \
+            f"{want_engine} 一棒都没收到:{status}"

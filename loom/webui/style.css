@@ -1,0 +1,1697 @@
+/* ============================================================
+   Loom 设计系统 —— 纸墨 · Zhǐ Mò Design System
+   宣纸底 · 墨分五色 · 一枚印泥红。规范见 docs/design/design-system.md
+   两轴语义:--accent = 墨(交互/落定),--seal = 印泥朱(你的痕迹:
+   指纹/手改/学到的)。红按印章逻辑用:一屏至多一处、小面积。
+   组件只用语义 token;改主题只换 §1 的映射。
+   ============================================================ */
+
+/* ---------- 0. 品牌楷体 · Loom Kai ----------
+   霞鹜文楷屏幕阅读版 GB2312 子集(OFL 1.1,授权全文 fonts/OFL.txt;
+   packaging/subset_font.py 可复跑)。swap:字体没到先用系统楷,不白屏 */
+@font-face {
+  font-family: "Loom Kai";
+  src: url("fonts/loom-kai.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------- 1a. 语义 Token · LIGHT(宣纸) ---------- */
+:root, [data-theme="light"] {
+  --bg:             #F5F1E8;   /* 宣纸 */
+  --bg-sunken:      #EDE8DB;
+  --surface:        #FBF8F1;   /* 纸叠纸:比底略白,不用刺眼纯白 */
+  --surface-raised: #FDFBF6;
+  --overlay-scrim:  rgba(31,30,27,.38);
+
+  --text:           #1F1E1B;   /* 焦墨 */
+  --text-soft:      #6B6862;   /* 重墨 */
+  --text-mute:      #9C978E;   /* 淡墨 */
+  --text-on-accent: #F7F3EA;   /* 墨上显纸 */
+
+  --line:           #DFD9CC;   /* 清墨 */
+  /* 别名:老代码里写的是 --rule / --mono / --warn,统一到此,别再各写兜底值 */
+  --rule:           var(--line);
+  --warn:           var(--warning);
+  --mono:           "JetBrains Mono", "Cascadia Mono", Consolas, "Microsoft YaHei Mono", monospace;
+  --line-soft:      #EAE5D8;
+  --line-strong:    #C9C2B2;
+
+  /* 墨:交互与落定(主按钮=纸上落墨,完成=墨落定) */
+  --accent:         #1F1E1B;
+  --accent-hover:   #3E3C38;   /* 浓墨 */
+  --accent-ink:     #1F1E1B;
+  --accent-tint:    #EAE4D6;   /* 淡墨晕 */
+  --accent-tint-2:  #DFD8C7;
+
+  /* 印泥朱:你的痕迹(指纹/手改/学到的)。印章逻辑,小面积 */
+  --seal:           #A63A2B;
+  --seal-ink:       #8E2F22;
+  --seal-tint:      #F3E4DE;
+  --seal-line:      rgba(166,58,43,.5);
+
+  --success:        #376F55;  --success-tint: #E5EEE6;   /* 竹青 5.22:1 */
+  --warning:        #A87718;  --warning-tint: #F5EDD8;
+  --danger:         #B2432A;  --danger-tint:  #F6E8E2;   /* 赤 5.0:1,偏橙区别于印泥 */
+  --info:           #46617A;  --info-tint:    #E7EDF2;   /* 黛蓝 */
+
+  --shadow-1: 0 1px 2px rgba(31,30,27,.05);
+  --shadow-2: 0 2px 8px rgba(31,30,27,.07);
+  --shadow-3: 0 8px 24px rgba(31,30,27,.10);
+  --shadow-4: 0 16px 48px rgba(31,30,27,.14);
+  --shadow-focus: 0 0 0 3px rgba(31,30,27,.12);   /* 墨晕焦点环 */
+  /* body 上极淡的竖向织纹(经线,织机母题) */
+  --weave: rgba(90,84,70,.028);
+}
+
+/* ---------- 1b. 语义 Token · DARK(墨池:夜=墨中显纸) ---------- */
+[data-theme="dark"] {
+  --bg:             #14161A;   /* 偏青漆黑,不是深宣纸 */
+  --bg-sunken:      #101216;
+  --surface:        #1B1E23;
+  --surface-raised: #22262C;
+  --overlay-scrim:  rgba(0,0,0,.6);
+
+  --text:           #E8E3D9;   /* 暖白宣纸,禁纯白 */
+  --text-soft:      #B3AEA3;
+  --text-mute:      #837F76;
+  --text-on-accent: #14161A;   /* 纸上显墨(反转) */
+
+  --line:           #2E3138;
+  --line-soft:      #24272D;
+  --line-strong:    #41454E;
+
+  /* 夜里墨纸反转:交互主色=纸色 */
+  --accent:         #E8E3D9;
+  --accent-hover:   #F5F1E8;
+  --accent-ink:     #E8E3D9;
+  --accent-tint:    #262A31;
+  --accent-tint-2:  #2C3138;
+
+  --seal:           #D2604F;   /* 朱提亮降饱和,保对比 */
+  --seal-ink:       #DC7563;
+  --seal-tint:      #31211D;
+  --seal-line:      rgba(210,96,79,.45);
+
+  --success:        #7FAE93;  --success-tint: #1C2822;
+  --warning:        #D3A84C;  --warning-tint: #2C2515;
+  --danger:         #E07A5F;  --danger-tint:  #3A201A;
+  --info:           #8AA7C0;  --info-tint:    #1C242D;
+
+  --shadow-1: 0 0 0 1px rgba(232,227,217,.04);
+  --shadow-2: 0 2px 8px rgba(0,0,0,.4),  inset 0 0 0 1px rgba(232,227,217,.05);
+  --shadow-3: 0 8px 28px rgba(0,0,0,.5), inset 0 0 0 1px rgba(232,227,217,.06);
+  --shadow-4: 0 18px 56px rgba(0,0,0,.6),inset 0 0 0 1px rgba(232,227,217,.07);
+  --shadow-focus: 0 0 0 3px rgba(232,227,217,.16);
+  --weave: rgba(232,227,217,.02);
+}
+
+/* ---------- 1c. 非主题 Token(字体/字号/间距/圆角/动效) ---------- */
+:root {
+  --font-ui:   -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+               "Segoe UI", system-ui, sans-serif;
+  /* 品牌时刻专用楷体(logo/弹窗标题/章题/引语),每屏至多一处;禁伪粗。
+     首位 Loom Kai 是随包捆的文楷 GB2312 子集(见顶部 @font-face);
+     子集外的生僻字逐字回退:本机全量文楷 → 系统楷 → 宋 */
+  --font-brand: "Loom Kai", "LXGW WenKai Screen", "LXGW WenKai", "Kaiti SC",
+                "STKaiti", "KaiTi", "楷体", "Songti SC", serif;
+  /* 手稿正文衬线:Win 无好宋体时退黑体,绝不落 SimSun */
+  --font-read: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC",
+               Georgia, "PingFang SC", "Microsoft YaHei", serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "PingFang SC", monospace;
+
+  --fs-display: 26px; --fs-h1: 21px; --fs-h2: 18px; --fs-body: 14px;
+  --fs-read: 17px; --fs-sm: 13px; --fs-xs: 12px; --fs-caption: 11px;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+  --radius-xs: 6px; --radius-sm: 8px; --radius-md: 12px;
+  --radius-lg: 16px; --radius-xl: 20px; --radius-pill: 999px;
+
+  --dur-1: 90ms; --dur-2: 150ms; --dur-3: 220ms; --dur-4: 320ms;
+  --ease-out:   cubic-bezier(.22,1,.36,1);
+  --ease-inout: cubic-bezier(.4,0,.2,1);
+  --ease-soft:  cubic-bezier(.4,0,.6,1);
+}
+
+/* ---------- 2. 基础 ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+html { color-scheme: light dark; }
+body {
+  color: var(--text);
+  font: var(--fs-body)/1.6 var(--font-ui);
+  background:
+    repeating-linear-gradient(90deg, var(--weave) 0 1px, transparent 1px 30px),
+    var(--bg);
+  transition: background-color var(--dur-3) var(--ease-inout), color var(--dur-3) var(--ease-inout);
+}
+.hidden { display: none !important; }
+::selection { background: var(--seal-tint); }
+:focus-visible { outline: none; }
+
+/* 自定义滚动条(克制) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--radius-pill);
+  border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-mute); background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 3. 表单与按钮 ---------- */
+input, textarea, select {
+  width: 100%; background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 9px 11px; font: inherit;
+  transition: border-color var(--dur-2), box-shadow var(--dur-2), background-color var(--dur-2);
+}
+input::placeholder, textarea::placeholder { color: var(--text-mute); }
+input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus);
+}
+textarea { resize: vertical; }
+select { cursor: pointer; }
+
+button {
+  background: var(--surface); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 9px 15px; cursor: pointer; font: inherit;
+  transition: border-color var(--dur-2), background-color var(--dur-2),
+              color var(--dur-2), transform var(--dur-1);
+}
+button:hover { border-color: var(--text-soft); }
+button:active { transform: translateY(.5px); }
+button:focus-visible { box-shadow: var(--shadow-focus); }
+button.primary { background: var(--accent); color: var(--text-on-accent);
+  border-color: var(--accent); font-weight: 600; }
+button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button.ghost { background: transparent; border-color: transparent; color: var(--text-soft); }
+button.ghost:hover { background: var(--line-soft); color: var(--text); border-color: transparent; }
+button.mini { padding: 5px 11px; font-size: var(--fs-xs); border-radius: var(--radius-xs); }
+button.danger { background: var(--danger); color: #F7F3EA; border-color: var(--danger); font-weight: 600; }
+button.danger:hover { background: var(--danger); filter: brightness(.92); border-color: var(--danger); }
+button:disabled { opacity: .55; cursor: default; }
+
+.error { color: var(--danger); margin-top: var(--space-3); font-size: var(--fs-sm); white-space: pre-wrap; }
+.hint { color: var(--text-soft); font-size: var(--fs-xs); margin-top: var(--space-2); }
+/* 记忆库/知识库位置面板的行（core.js memoryPanel + library.js 知识库位置共用）。
+   长路径（当前位置）要能换行不撑破容器。 */
+.mem-rows { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px; }
+.mem-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.mem-row b { flex: none; font-weight: 600; font-size: var(--fs-xs); color: var(--text); }
+.mem-row .hint { flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: anywhere; word-break: break-word; }
+
+/* ---------- 3b. 图标(iconfont Symbol)---------- */
+/* svg 用 fill: currentColor → 自动跟随文字色与明暗主题;1em → 跟随字号 */
+.ico { display: inline-flex; vertical-align: -.14em; }
+.icon { width: 1em; height: 1em; fill: currentColor; flex: none; overflow: hidden; }
+/* 纯图标按钮:图标直接挂在 button 上(无 .ico 包裹),给个固定尺寸 */
+.icon-btn .icon, .search-bar button .icon { width: 16px; height: 16px; }
+.ch-act .icon { width: 14px; height: 14px; }
+
+/* ---------- 4. 欢迎页 ---------- */
+.welcome { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--space-6); }
+.welcome-card {
+  width: 460px; max-width: 100%; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: var(--space-7) var(--space-6); box-shadow: var(--shadow-3);
+  animation: rise var(--dur-4) var(--ease-out);
+}
+.welcome-head { display: flex; align-items: center; gap: var(--space-3); }
+.welcome-head .weave-mark { width: 38px; height: 38px; flex: none; }
+.logo { font-family: var(--font-brand); font-size: var(--fs-display); font-weight: 400; line-height: 1.1; }
+.tag { color: var(--text-soft); margin-top: var(--space-1); font-family: var(--font-brand); font-size: 15px; }
+/* 欢迎页旅程条:告诉你整趟路有五步,此刻只做第一步(一屏一事) */
+.journey-strip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: var(--space-4); font-size: var(--fs-caption); color: var(--text-mute); }
+.journey-strip i { font-style: normal; color: var(--line-strong); }
+.journey-strip .js-on { color: var(--text); font-weight: 600; }
+
+/* 接入模型:欢迎页第一步(连一次全局记住) */
+.connect-block { display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-4); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--bg-sunken); }
+.connect-block .cb-status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+  font-size: var(--fs-sm); color: var(--text-soft); }
+.connect-block .cb-status b { color: var(--text); font-weight: 600; }
+.cb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-mute); flex: none; }
+.cb-dot.ok { background: var(--success); }
+.connect-block button { flex: none; }
+/* 探活失败:外框红闪两下(2026-10-20 需求确认)。
+   用 outline 而不是 border/背景 —— 不占布局、不改底色,闪完就像没发生过,不长期吓人。 */
+@keyframes cbWarn {
+  0%, 100% { outline: 2px solid rgba(200, 60, 50, 0); }
+  50%       { outline: 2px solid var(--danger, #c8322b); }
+}
+.connect-block.cb-bad { animation: cbWarn .7s ease-in-out 2; }
+@media (prefers-reduced-motion: reduce) { .connect-block.cb-bad { animation: none; outline: 2px solid var(--danger, #c8322b); } }
+
+/* 我的书架:书封卡片(2026-11-02 重做；11-03 三轮彩色封面被作者 11-03 晚裁定推翻——
+   改向:3:2 横版 + 素雅线描米白底,与全局 UI 统一语言(卡片描边/徽章胶囊/细线条),
+   彩色渐变全撤。深色主题走语义变量自动成深底,不另造色值。 */
+.shelf { list-style: none; margin: 0; padding: var(--space-2) 0 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px;
+  max-height: 66vh; overflow-y: auto; }
+.shelf .book { position: relative; aspect-ratio: 2 / 3; cursor: pointer;
+  display: flex; flex-direction: column; padding: 14px 14px 12px 30px;
+  background: var(--surface);                          /* 纸色底,跟随主题 */
+  border: 1px solid var(--line);
+  border-radius: 3px 10px 10px 3px;                    /* 左直右圆=书脊开合面 */
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2); }
+/* 左侧书脊:同底色深一档的描边分隔(双细线),不做彩色实色条 */
+.shelf .book::before { content: ""; position: absolute; left: 9px; top: 10px; bottom: 10px;
+  width: 0;
+  border-left: 1px solid var(--line);
+  box-shadow: 3px 0 0 -3px var(--line-soft); }         /* 并排第二根更淡的线=装订缝 */
+/* 角花:右下角一组线描弧(同 iconfont 细线语言,呼应织布经纬) */
+.shelf .book-deco { position: absolute; right: 10px; bottom: 10px;
+  width: 34px; height: 34px; pointer-events: none; opacity: .55;
+  background:
+    radial-gradient(circle at 0 0, transparent 15px, var(--line) 15px, var(--line) 16px, transparent 16.5px),
+    radial-gradient(circle at 0 0, transparent 22px, var(--line-soft) 22px, var(--line-soft) 23px, transparent 23.5px);
+  border-radius: 0 0 8px 0; }
+.shelf .book:hover { transform: translateY(-2px); box-shadow: var(--shadow-2);
+  border-color: var(--line-strong); }
+.shelf .book-title { font-family: var(--font-brand); font-size: 15px; line-height: 1.55;
+  letter-spacing: .5px; color: var(--text); position: relative; flex: 1;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-all; }                              /* 正常字色横排,最多三行省略 */
+.shelf .book-meta { position: relative; margin-top: 8px; font-size: var(--fs-caption);
+  color: var(--text-soft); align-self: flex-start;
+  padding: 1px 9px; border-radius: 999px;
+  border: 1px solid var(--line); }                     /* 章数徽标:回归描边胶囊(全局 badge 语言) */
+.shelf .book-gone { opacity: .5; }
+.shelf .book-gone .book-meta { color: var(--danger); }
+.shelf .book-x { position: absolute; top: 8px; right: 4px; border: none; background: transparent;
+  color: var(--text-mute); cursor: pointer; padding: 2px 4px; line-height: 1; opacity: 0;
+  transition: opacity var(--dur-2); z-index: 1; }
+.shelf .book:hover .book-x { opacity: 1; }
+.shelf .book-x:hover { color: var(--danger); }
+
+/* 板块③:开一本书(三个动作按钮,表单在弹层里) */
+.welcome-actions { display: flex; gap: var(--space-2); margin-top: var(--space-5);
+  padding-top: var(--space-5); border-top: 1px solid var(--line-soft); flex-wrap: wrap; }
+.welcome-actions button { flex: 1 1 auto; }
+
+.welcome-block { margin-top: var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--line-soft); }
+.welcome-block h3 { margin: 0 0 var(--space-3); font-size: var(--fs-h2); font-weight: 700; }
+.welcome-block label { display: block; color: var(--text-soft); font-size: var(--fs-xs); margin: 10px 0 5px; }
+.welcome-block button { margin-top: var(--space-4); }
+.welcome-intro { margin: var(--space-4) 0 0; padding: var(--space-4); background: var(--accent-tint);
+  border: 1px solid var(--line); border-radius: var(--radius-md); }
+.welcome-intro p { margin: 0 0 var(--space-3); font-size: var(--fs-sm); line-height: 1.8; color: var(--text-soft); }
+.welcome-intro b { color: var(--accent-ink); font-weight: 700; }
+.welcome-intro .primary { width: 100%; }
+.welcome-help { margin-top: var(--space-4); font-size: var(--fs-sm); color: var(--text-soft); }
+.welcome-help summary { cursor: pointer; color: var(--text); }
+.welcome-help ol { margin: var(--space-2) 0 0; padding-left: 20px; line-height: 1.85; }
+
+/* ---------- 5. 主框架 / 顶栏 ---------- */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-5); background: var(--surface);
+  border-bottom: 1px solid var(--line); z-index: 5;
+  transition: opacity var(--dur-3) var(--ease-soft), transform var(--dur-3) var(--ease-soft);
+}
+.brand { display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-brand); font-weight: 400; font-size: var(--fs-h2); }
+.brand .weave-mark { width: 20px; height: 20px; }
+.topbar-spacer { margin-left: auto; }
+/* ⌘K 常驻提示:命令面板是一切操作的家 */
+.kbd-hint { font-size: var(--fs-caption); color: var(--text-mute); border: 1px solid var(--line);
+  border-radius: var(--radius-xs); padding: 2px 7px; cursor: pointer; white-space: nowrap;
+  transition: color var(--dur-2), border-color var(--dur-2); }
+.kbd-hint:hover { color: var(--text); border-color: var(--line-strong); }
+/* 后端连接检测状态(claude/codex) */
+.backend-status { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs);
+  color: var(--text-soft); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.backend-status:empty { display: none; }
+.backend-status.ok { color: var(--success); }
+.backend-status.bad { color: var(--danger); }
+.backend-status .stat-ico { width: 13px; height: 13px; flex: none; }
+
+/* 顶栏图标按钮(主题/自检/专注) */
+.icon-btn { padding: 7px 9px; line-height: 1; color: var(--text-soft); }
+.icon-btn:hover { color: var(--text); background: var(--line-soft); border-color: transparent; }
+
+.main { display: flex; flex: 1; min-height: 0; }
+
+/* ---------- 6. 侧栏 ---------- */
+.sidebar {
+  width: 256px; flex: none; background: var(--surface); border-right: 1px solid var(--line);
+  overflow-y: auto; padding: var(--space-4) var(--space-3);
+  transition: margin-left var(--dur-4) var(--ease-out), opacity var(--dur-3) var(--ease-soft);
+}
+.side-section { margin-bottom: var(--space-5); }
+.side-section > summary, .side-head {
+  cursor: default; color: var(--text-soft); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: .02em; margin-bottom: var(--space-2);
+}
+/* ── 幕后侧边栏:去掉折叠,iconfont图标(作者 2026-10-20) ─────────────── */
+.section-header {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 0;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--text-soft);
+  letter-spacing: .02em; margin-bottom: var(--space-2);
+}
+.group-header {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 0;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text);
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: var(--space-2);
+}
+
+/* 外置大脑目录分组(世界观/、人物/):可折叠,一节(人)一行 */
+.brain-group { padding: 0 !important; display: block !important; }
+.brain-group:hover { background: transparent !important; }
+.brain-group summary { list-style: none; cursor: pointer; padding: 7px 10px;
+  border-radius: var(--radius-sm); display: flex; align-items: center; gap: var(--space-2); }
+.brain-group summary::-webkit-details-marker { display: none; }
+.brain-group summary:hover { background: var(--line-soft); }
+.brain-group details[open] > summary .disclosure { transform: rotate(90deg); }
+.brain-sub { margin-left: var(--space-4) !important; }
+.brain-sub li { font-size: var(--fs-sm); }
+.side-section > summary::-webkit-details-marker { display: none; }
+/* 折叠箭头:一个 chevron 图标,展开时转 90° 朝下 */
+.disclosure { color: var(--text-mute); margin-right: 2px; transition: transform var(--dur-2) var(--ease-out); }
+.side-section[open] > summary .disclosure { transform: rotate(90deg); }
+.side-head { display: flex; align-items: center; justify-content: space-between; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li {
+  padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  display: flex; align-items: center; gap: var(--space-2);
+  transition: background-color var(--dur-2), color var(--dur-2);
+}
+.list li:hover { background: var(--line-soft); }
+.list li.active { background: var(--accent-tint); color: var(--accent-ink); font-weight: 600; }
+.list li.fp { color: var(--seal-ink); font-weight: 600; }
+.list li.fp .icon { color: var(--seal); }
+.list li.hint { cursor: default; color: var(--text-mute); font-size: var(--fs-sm); }
+.list li.hint:hover { background: transparent; }
+
+/* ── A2 分卷分章树(2026-11-02 作者手绘图)────────────────────────────
+   卷头 = 卷名 + n/m 章,可折叠;章行 = 状态图标 + 章名 + 行内编织按钮。
+   图标语义:✓ 已完成 / ✎ 可写 / · 锁定。教学模式下按钮隐藏但 ✎ 仍显示。 */
+.vol-tree { margin-top: var(--space-2); }
+.vt-vol { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); margin-bottom: var(--space-2); background: var(--surface); }
+.vt-vol > summary {
+  display: flex; align-items: center; gap: var(--space-2); min-width: 0;
+  padding: 7px 10px; cursor: pointer; list-style: none;
+  font-size: var(--fs-sm);
+}
+.vt-vol > summary::-webkit-details-marker { display: none; }
+.vt-vol > summary:hover { color: var(--text); }
+.vt-vol-name { font-weight: 600; color: var(--text); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-guide { padding: 0 10px 8px; margin: 0; }
+.vt-chapters { padding: 2px 4px 4px; }
+.vt-ch { padding: 4px 8px !important; gap: var(--space-2); }
+.vt-ch-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); color: var(--text-soft); overflow: hidden; }
+.vt-ch-label.done { color: var(--text); }
+.vt-ch-label.locked { color: var(--text-mute); }
+.vt-ico { flex: none; width: 14px; text-align: center; font-size: var(--fs-sm); }
+.vt-ico.done { color: var(--ok, var(--accent-ink)); }
+.vt-ico.writable { color: var(--seal); }
+.vt-outline { flex: none; font-size: var(--fs-caption); color: var(--text-soft);
+  border: 1px solid var(--line-soft); border-radius: 3px; padding: 0 4px;
+  background: transparent; cursor: pointer; }
+.vt-outline:hover { color: var(--text); border-color: var(--line-strong); }
+/*③混合流(2026-11-03):「审」徽标(同纲徽标描边语言,绿点亮示有意见) + 树行审查小按钮。 */
+.vt-review { color: var(--ok, #4a7c59); }
+.vt-review:hover { color: var(--text); }
+.vt-step { font-size: var(--fs-caption); padding: 1px 7px; }
+.vt-ch .vt-step + .vt-step { margin-left: 4px; }
+/*五点①(2026-11-03):目录浏览浮窗行。 */
+.browse-list { max-height: 46vh; overflow-y: auto; margin-bottom: var(--space-3); }
+.browse-list .browse-row { cursor: pointer; padding: 7px 10px; border-radius: var(--radius-sm);
+  border-bottom: 1px solid var(--line-soft); }
+.browse-list .browse-row:hover { background: var(--accent-tint); }
+.vt-weave { flex: none; }
+.vt-more { cursor: pointer; color: var(--text-soft); font-size: var(--fs-sm);
+  text-align: center; padding: 5px 0 !important; }
+.vt-more:hover { color: var(--text); }
+/* 2026-11-02 二轮：#wm-quick 快捷切档下拉已删（写作模式只在设置页），样式随之移除。 */
+/*2026-11-03（模式终身绑定）：写作页左上角只读模式 badge——纯文本描边胶囊，不可点。 */
+.wm-readonly-badge { font-size: var(--fs-caption); color: var(--text-soft);
+  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line);
+  margin-left: 10px; white-space: nowrap; user-select: none; }
+
+/* agents:五个有人设的角色卡(头像 + 一句话人设,不展示提示词) */
+#agents { display: flex; flex-direction: column; gap: var(--space-1); }
+.agent-card { align-items: center; gap: var(--space-3); position: relative; }
+.agent-ava, .agent-fallback {
+  width: 40px; height: 40px; border-radius: 50%; flex: none;
+  border: 1px solid var(--line); background: var(--accent-tint);
+}
+.agent-ava { object-fit: cover; }
+.agent-fallback { display: flex; align-items: center; justify-content: center;
+  color: var(--accent-ink); font-weight: 700; font-size: var(--fs-sm); }
+.agent-info { flex: 1 1 auto; min-width: 0; padding-right: 12px; }
+.agent-name { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  min-width: 0; overflow-wrap: anywhere;
+  font-weight: 600; font-size: var(--fs-sm); color: var(--text); }
+.agent-tag { min-width: 0; font-size: var(--fs-caption); font-weight: 500; color: var(--text-mute);
+  overflow-wrap: anywhere; }
+.agent-desc { margin-top: 2px; min-width: 0; font-size: var(--fs-xs); line-height: 1.5;
+  color: var(--text-soft); overflow-wrap: anywhere; word-break: break-word; }
+.agent-card.active { color: inherit; }
+.agent-card.active .agent-name { color: var(--accent-ink); }
+/* 侧边栏角色选中态(2026-10-20 需求确认):细竖条 + 淡底 + 底边一条细横线。
+   用 inset 阴影而不是 border —— 不加 padding 就不会让卡片跳动;不加徽标、不改字号。
+   2026-10-20 追加:只靠竖条+淡底不够显眼,补一条底边线。 */
+.agent-card.on {
+  background: var(--accent-tint);
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 -1px 0 var(--accent);
+  border-radius: var(--radius-sm);
+}
+.agent-card.on .agent-name { color: var(--accent-ink); }
+.agent-card.on .agent-desc { color: var(--text); }
+
+/* 角色卡右上角指示灯(2026-10-25 需求确认;当晚二次调整:黄呼吸 / 红慢闪)。
+   三档,颜色与节奏都不一样 —— 不让人靠"有没有灯"去猜:
+     .busy      正在思考       黄灯 · 慢速呼吸(3.2s 一呼一吸,不刺眼)
+     .due       有候选卡待拍板  红灯 · 慢速闪烁(2.4s 一闪)
+     .due-soft  它在等你回话    灰点 · 静止(这是常有的状态,不该抢注意力)
+   尺寸压到 7px:它只是提示,不该抢角色卡的视觉重量。 */
+.agent-lamp {
+  position: absolute; top: 5px; right: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  pointer-events: none;                  /* 别挡住卡片本身的点击 */
+}
+.agent-lamp.busy { background: var(--warning); animation: agent-lamp-breathe 3.2s ease-in-out infinite; }
+.agent-lamp.due { background: var(--danger); animation: agent-lamp-blink 2.4s ease-in-out infinite; }
+.agent-lamp.due-soft { background: var(--text-mute); opacity: .45; }
+/* 呼吸:亮度与体积一起起伏,像灯在喘气,而不是电子钟在闪 */
+@keyframes agent-lamp-breathe {
+  0%, 100% { opacity: .35; box-shadow: 0 0 0 0 transparent; }
+  50%      { opacity: 1;   box-shadow: 0 0 0 2px var(--warning-tint); }
+}
+/* 慢闪:亮 → 暗 → 亮,留够暗的时间让人一眼看出"在闪"而不是"有点亮" */
+@keyframes agent-lamp-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .12; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-lamp.busy, .agent-lamp.due { animation: none; opacity: 1; }
+}
+
+/* ── 角色面板两栏布局(作者 2026-10-20) ──────────────────────────── */
+.agent-panel-wrap { display: flex; gap: 8px; }
+.agent-panel-col { flex: 1; min-width: 0; }
+.agent-col-head {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--text-soft);
+  letter-spacing: .02em; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: 4px;
+}
+.agent-panel-col .list { gap: 2px; }
+.agent-panel-col .agent-card { padding: 6px 8px !important; }
+.agent-panel-col .agent-desc { font-size: 10px; line-height: 1.3; }
+
+/* agent-group:作者智库(固定展开)/写作引擎(可折叠)样式 */
+.agent-group { margin-bottom: var(--space-3); }
+.agent-group > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  padding: 5px 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text);
+  display: flex; align-items: center; gap: 4px;
+}
+.agent-group > summary::-webkit-details-marker { display: none; }
+.agent-group > summary .disclosure { transition: transform var(--dur-1); }
+.agent-group[open] > summary .disclosure { transform: rotate(90deg); }
+
+/* ── 书房伙伴（领航员）：独立于「幕后」14 人，用印章红做明显区分 ─────────────
+   三层视觉层次（作者 2026-10-20 要求「作出明显区分」）：
+     领航员   = 印章红卡片（整个底色，最重）—— 它是入口/路由，不是某个工种
+     作者智库 = 墨色左边框（accent）—— 定规矩、搭骨架的人
+     写作引擎 = 素色左边框（line）—— 按单章流水线干活的人
+*/
+#partner-section {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-4);
+}
+#partner-agents .agent-card {
+  /* 作者 2026-10-20：红色底色和整体配色不搭，改中性灰。
+     区分靠「整卡填充」而不是颜色——作者智库/写作引擎都只有左边框、无填充，
+     领航员是唯一有底色的卡，视觉上就是「凸起的一个模块」。 */
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--text-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 10px 10px 9px !important;
+  margin-bottom: 2px;
+}
+#partner-agents .agent-card:hover {
+  background: var(--surface);
+  border-color: var(--text-mute);
+}
+#partner-agents .agent-name { color: var(--text); font-weight: 700; }
+#partner-agents .agent-tag { color: var(--text-soft); }
+#partner-agents .agent-desc { color: var(--text-soft); }
+
+/* 作者智库:更高级的卡片样式 */
+#author-agents .agent-card {
+  border-left: 2px solid var(--accent);
+  padding-left: 8px !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, transparent 100%);
+}
+#author-agents .agent-card:hover {
+  background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+}
+#author-agents .agent-name { color: var(--accent); }
+#author-agents .agent-tag { color: var(--accent-ink); }
+
+/* 写作引擎:次级卡片样式 */
+#engine-agents .agent-card {
+  border-left: 2px solid var(--line);
+  padding-left: 8px !important;
+}
+#engine-agents .agent-name { color: var(--text-soft); }
+
+/* agent 全流程面板:5 道工序竖排,头像 + 人设 + 读/产出,点中的高亮 */
+/* 「一章是怎么织出来的」:六段卡片比较高,给足高度别出滚动条(2026-10-21)。
+   run-card 默认 88vh + 24px 内边距,六段一挤就冒竖条 ⇒ 这里放宽到 94vh、内边距收一档。 */
+.flow-card { width: 680px; max-height: 94vh; padding: var(--space-5) var(--space-6); }
+.flow-card .flow-stage { padding: var(--space-2) var(--space-3); }
+.flow-card .flow-loop { margin-top: var(--space-2); }
+.flow-inputs { font-size: var(--fs-xs); color: var(--text-soft); background: var(--bg-sunken);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: var(--space-3); }
+.flow-stages { display: flex; flex-direction: column; gap: 0; }
+.flow-stage { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); cursor: pointer;
+  transition: border-color var(--dur-2), background-color var(--dur-2); }
+.flow-stage:hover { border-color: var(--text-soft); }
+.flow-stage.on { border-color: var(--accent); background: var(--accent-tint); box-shadow: var(--shadow-1); }
+.flow-ava, .flow-fallback { width: 56px; height: 56px; border-radius: 50%; flex: none;
+  border: 1px solid var(--line); background: var(--accent-tint); }
+.flow-ava { object-fit: cover; }
+.flow-fallback { display: flex; align-items: center; justify-content: center;
+  color: var(--accent-ink); font-weight: 700; font-size: var(--fs-h2); }
+.flow-body { min-width: 0; }
+.flow-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.flow-name b { font-size: var(--fs-h2); }
+.flow-tag { font-size: var(--fs-caption); color: var(--text-mute); }
+.flow-desc { font-size: var(--fs-sm); color: var(--text-soft); line-height: 1.6; margin-top: 2px; }
+.flow-io { display: flex; gap: var(--space-3); margin-top: 6px; flex-wrap: wrap; font-size: var(--fs-caption); }
+.flow-reads { color: var(--text-mute); }
+.flow-prod { color: var(--accent-ink); font-weight: 600; }
+.flow-arrow { display: flex; justify-content: center; align-items: center; height: 16px; }
+.flow-arrow .icon { transform: rotate(90deg); width: 18px; height: 18px; color: var(--seal); }
+.flow-loop { margin: var(--space-3) 0 0; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--seal-tint); color: var(--seal-ink); font-size: var(--fs-sm);
+  border: 1px solid var(--seal-line); text-align: center; }
+
+.badge { font-size: var(--fs-caption); padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--line-soft); color: var(--text-soft); margin-left: auto; }
+.badge.on { background: var(--accent-tint); color: var(--accent-ink); }
+
+/* 章节行:hover 浮出「重写本章」动作 */
+.ch-label { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; }
+.ch-label > span:first-child { flex: none; }   /* 第N章 不被挤到换行 */
+.ch-actions { display: flex; gap: 1px; margin-left: auto; flex: none; opacity: 0;
+  transition: opacity var(--dur-2); }
+.list li:hover .ch-actions { opacity: 1; }
+.list li:focus-within .ch-actions { opacity: 1; }   /* 键盘/触屏用户也看得见这五个动作 */
+/* 章号小而淡作导航锚点,标题为主、过长省略号截断 */
+.ch-no { flex: none; color: var(--text-mute); font-size: var(--fs-caption); }
+.ch-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--text); }
+/* hover 出操作区时,徽标让位(空间紧),避免章号被挤换行 */
+.list li:hover .ch-label .badge { display: none; }
+.ch-act { border: none; background: transparent; color: var(--text-mute); padding: 2px 4px;
+  border-radius: var(--radius-xs); font-size: var(--fs-sm); cursor: pointer; line-height: 1; }
+.ch-act:hover { background: var(--surface); color: var(--accent); }
+
+.book-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.book-actions .mini { flex: 1; }
+
+/* 嗓音指纹卡 */
+.voice-card {
+  margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md);
+  border: 1px solid var(--line); background:
+    repeating-linear-gradient(90deg, var(--seal-tint) 0 1px, transparent 1px 7px) left/100% 100% no-repeat,
+    var(--bg-sunken);
+  background-blend-mode: normal;
+}
+.voice-card .vc-body { font-size: var(--fs-sm); color: var(--text-soft);
+  font-family: var(--font-read); line-height: 1.6; }
+#btn-seed { margin-top: var(--space-2); width: 100%; }
+
+/* ---------- 7. 编辑区:暖纸上一张手稿白页 ---------- */
+.editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; position: relative; }
+.editor-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.path { color: var(--text-soft); font-size: var(--fs-sm); display: flex; align-items: center; gap: 6px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--seal);
+  flex: none; opacity: 0; transition: opacity var(--dur-2); }
+.dirty .dirty-dot { opacity: 1; }
+.editor-actions { display: flex; gap: var(--space-2); flex: none; }
+
+.editor-scroll { flex: 1; overflow: auto; padding: var(--space-6) var(--space-5);
+  display: flex; justify-content: center;
+  /*空态提示（视觉集中检查 2026-11-02）：没选文件时不再是一大块纯黑。*/
+  background: var(--bg); }
+.editor-empty {
+  max-width: 40em; margin: 18vh auto 0; text-align: center;
+  color: var(--text-mute); font-size: var(--fs-sm); letter-spacing: .04em;
+}
+#editor {
+  width: 100%; max-width: 38em; resize: none;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-7) calc(var(--space-7) - 8px);
+  font-family: var(--font-read); font-size: var(--fs-read); line-height: 1.9;
+  color: var(--text); caret-color: var(--seal);   /* 落笔见朱 */
+  transition: box-shadow var(--dur-2);
+}
+#editor:focus { outline: none; border-color: var(--line); box-shadow: var(--shadow-2); }
+#editor[readonly] { background: var(--bg-sunken); }
+
+/* Markdown 渲染预览:给普通用户看渲染版,而不是一脸 # 和 - */
+.md-preview {
+  width: 100%; max-width: 38em; align-self: flex-start; margin: 0 auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1); padding: var(--space-7) calc(var(--space-7) - 8px);
+  font-family: var(--font-read); font-size: var(--fs-read); line-height: 1.85; color: var(--text);
+  overflow-wrap: break-word;
+}
+.md-preview h1, .md-preview h2, .md-preview h3,
+.md-preview h4, .md-preview h5, .md-preview h6 {
+  font-family: var(--font-ui); color: var(--text); line-height: 1.35;
+  margin: 1.3em 0 .5em; font-weight: 700; }
+.md-preview h1 { font-family: var(--font-brand); font-weight: 400; font-size: 1.5em; }
+.md-preview h2 { font-family: var(--font-brand); font-weight: 400; font-size: 1.25em;
+  padding-bottom: .25em; border-bottom: 1px solid var(--line-soft); }
+.md-preview h3 { font-size: 1.1em; color: var(--text); }
+.md-preview h4, .md-preview h5, .md-preview h6 { font-size: 1em; color: var(--text-soft); }
+.md-preview > :first-child { margin-top: 0; }
+.md-preview p { margin: .6em 0; }
+.md-preview ul, .md-preview ol { margin: .5em 0; padding-left: 1.4em; }
+.md-preview li { margin: .25em 0; }
+.md-preview blockquote {
+  margin: .7em 0; padding: .4em .9em; color: var(--text-soft);
+  border-left: 3px solid var(--seal-line); background: var(--bg-sunken); border-radius: 0 var(--radius-xs) var(--radius-xs) 0; }
+.md-preview blockquote p { margin: 0; }
+.md-preview code {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em;
+  background: var(--bg-sunken); padding: .1em .35em; border-radius: var(--radius-xs); }
+.md-preview hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
+.md-preview strong { color: var(--text); font-weight: 700; }
+
+/* ── 理论跳转按钮（2026-11-04 作者裁定③：视频浓缩块结尾 → 理论速览）────────
+   显眼但不吵：描边药丸、印章红细节做视觉锚（与 blockquote 的 seal-line 同族）；
+   悬停填充。点击滚到第一部分对应条目（行为在 core.js 渲染后委托）。 */
+.md-preview .th-jump {
+  display: inline-block; margin: .15em .3em .15em 0; padding: .28em .8em;
+  font-family: var(--font-ui); font-size: .82em; line-height: 1.4; cursor: pointer;
+  color: var(--text-soft); background: var(--bg-sunken);
+  border: 1px solid var(--seal-line); border-radius: 999px;
+}
+.md-preview .th-jump:hover {
+  color: var(--text); background: var(--surface-raised);
+  border-color: var(--seal); }
+/* 理论速览条目锚点落点：被跳到时轻微高亮一下（:target 由浏览器原生处理） */
+.md-preview a[id^="th-"]:target { scroll-margin-top: 5em; }
+
+/* 生成初稿:引导弹窗里的一句话设定输入 */
+.draft-idea {
+  width: 100%; min-height: 64px; margin-top: var(--space-3); resize: vertical;
+  font-family: var(--font-read); font-size: var(--fs-sm); line-height: 1.6; }
+
+/* 章内搜索条 */
+.search-bar { display: none; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-5); border-bottom: 1px solid var(--line); background: var(--surface); }
+.search-bar.on { display: flex; }
+.search-bar input { flex: 1; max-width: 320px; }
+.search-bar .sb-count { color: var(--text-soft); font-size: var(--fs-sm); font-family: var(--font-mono); }
+
+/* 状态栏:字数 + 目标进度 */
+.editor-status {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-2) var(--space-5); color: var(--text-soft); font-size: var(--fs-sm);
+  border-top: 1px solid var(--line); background: var(--surface); min-height: 36px;
+}
+.wordcount { font-family: var(--font-mono); font-size: var(--fs-sm); white-space: nowrap; }
+.wordcount b { color: var(--text); font-weight: 600; }
+/* 「目标 X」= 框起来的小按钮(点它就地改终稿目标字数)。描边很淡,不抢正文的眼。 */
+.target-btn {
+  font: inherit; color: var(--text-soft); background: transparent;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-pill);
+  padding: 1px 9px; cursor: pointer; line-height: 1.5;
+}
+.target-btn:hover { color: var(--text); border-color: var(--text-soft); background: var(--bg-sunken); }
+.target-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 目标字数小浮窗:贴着底栏左侧弹出 */
+.target-pop {
+  position: absolute; left: var(--space-5); bottom: 46px; z-index: 40;
+  width: 268px; padding: var(--space-3) var(--space-4);
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-2);
+}
+.target-pop .field-label { margin-top: 0; }
+.target-pop-row { display: flex; gap: var(--space-2); align-items: center; }
+.target-pop-row input { flex: 1 1 0; min-width: 0; }
+.target-pop .hint { margin: 6px 0 0; font-size: var(--fs-xs); }
+.progress { flex: 1; max-width: 220px; height: 5px; border-radius: var(--radius-pill);
+  background: var(--bg-sunken); overflow: hidden; }
+.progress-bar { height: 100%; width: 0; border-radius: inherit; background: var(--text-soft);
+  transition: width var(--dur-3) var(--ease-out); }   /* 进行=行墨 */
+.progress-bar.done { background: var(--accent); }      /* 完成=墨落定 */
+.status-note { margin-left: auto; color: var(--text-mute); font-size: var(--fs-xs); }
+
+/* ---------- 7b. 输入退场:打字时工具让位于纸(专注是默认气质,不是开关) ---------- */
+body.typing:not(.focus-mode) .sidebar,
+body.typing:not(.focus-mode) .topbar { opacity: .35; }
+body.typing:not(.focus-mode) .sidebar:hover,
+body.typing:not(.focus-mode) .topbar:hover { opacity: 1; }
+
+/* ---------- 7c. 朱批浮条:选中正文就地浮出(重写这段/复制) ---------- */
+.seal-bar { position: fixed; z-index: 35; display: none; align-items: center; gap: 2px;
+  background: var(--surface-raised); border: 1px solid var(--seal-line);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-3); padding: 3px 4px;
+  animation: rise var(--dur-2) var(--ease-out); }
+.seal-bar.on { display: inline-flex; }
+.seal-bar button { border: none; background: transparent; padding: 4px 10px;
+  font-size: var(--fs-xs); border-radius: var(--radius-xs); color: var(--text-soft); }
+.seal-bar button:hover { background: var(--line-soft); color: var(--text); }
+.seal-bar .sb-rewrite { color: var(--seal-ink); font-weight: 600; }
+
+/* ---------- 7d. 织章状态条:写章弹窗收起后,织机在底部继续响 ---------- */
+.run-strip { position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%);
+  z-index: 30; display: flex; align-items: center; gap: var(--space-3);
+  background: var(--surface-raised); border: 1px solid var(--line);
+  border-radius: var(--radius-pill); box-shadow: var(--shadow-3);
+  padding: 7px 10px 7px 16px; white-space: nowrap; max-width: calc(100vw - 32px);
+  animation: rise var(--dur-3) var(--ease-out); cursor: default; }
+/* 侧栏展开时,底部状态条改在「剩下的那块」居中——否则它 z-index 30 < 侧栏 33,
+   右半截会被侧栏压住,看着像浮条自己歪了。--nav-side-w 由 app.js 实时写。 */
+body.nav-side-on .run-strip { left: calc((100vw - var(--nav-side-w, 440px)) / 2);
+  max-width: calc(100vw - var(--nav-side-w, 440px) - 32px); }
+.run-strip .rs-label { font-size: var(--fs-sm); color: var(--text); font-weight: 600; }
+.run-strip.err .rs-label { color: var(--danger); }
+.run-strip .rs-pills { display: inline-flex; align-items: center; gap: 4px; }
+.run-strip .rs-role { font-size: var(--fs-caption); color: var(--text-mute); }
+.run-strip .rs-role.done { color: var(--text-soft); }
+.run-strip .rs-role.running { color: var(--text); font-weight: 600;
+  animation: breathe 1.6s var(--ease-inout) infinite; }
+.run-strip .rs-conn { width: 10px; height: 1.5px; background: var(--line); flex: none;
+  transition: background-color var(--dur-3); }
+.run-strip .rs-conn.done { background: var(--seal); }   /* 完成的连线染朱=叙事线 */
+.run-strip .rs-count { font-family: var(--font-mono); font-size: var(--fs-caption);
+  color: var(--text-soft); }
+.run-strip .rs-count:empty { display: none; }
+
+/* ---------- 7e. learn 盖印仪式 ---------- */
+.seal-stamp { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-right: 8px; vertical-align: -4px;
+  background: var(--seal); color: #F7F3EA; border-radius: 5px;
+  font-family: var(--font-brand); font-size: 15px; font-weight: 400;
+  animation: stamp var(--dur-4) var(--ease-out); }
+@keyframes stamp {
+  0%   { transform: scale(1.8) rotate(-8deg); opacity: 0; }
+  60%  { transform: scale(.94) rotate(0deg);  opacity: 1; }
+  100% { transform: scale(1); }
+}
+.learn-sum { font-size: var(--fs-sm); color: var(--text); margin: -6px 0 var(--space-2); }
+.learn-sum b { color: var(--seal-ink); }
+
+/* ---------- 7f. 起步旅程卡(五步向导壳的书内形态):全部完成自动消失 ---------- */
+.journey-card { margin-bottom: var(--space-5); padding: var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--bg-sunken); }
+.journey-card .jc-ava, .journey-card .jc-fallback {
+  width: 24px; height: 24px; border-radius: 50%; flex: none;
+  object-fit: cover; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(127,127,127,0.15); font-size: 13px; }
+/* 「这个软件怎么用」速查(2026-10-20):原生 details,默认收起 —— 需要时才展开,不抢版面 */
+.jc-guide { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.jc-guide > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-soft); list-style: none; }
+.jc-guide > summary::-webkit-details-marker { display: none; }
+.jc-guide > summary::before { content: "▸ "; color: var(--text-mute); }
+.jc-guide[open] > summary::before { content: "▾ "; }
+.jc-guide > summary:hover { color: var(--text); }
+.jg-body { margin-top: 6px; font-size: var(--fs-xs); line-height: 1.75; color: var(--text-soft); }
+.jg-body p { margin: 0 0 7px; }
+.jg-body b { color: var(--text); }
+.jg-body .jg-tip { color: var(--text-mute); margin-bottom: 0; }
+/* ⚠ .jc-btn 名字虽带 jc 前缀,但它不是卡片机专用:对话区的发送/另起(.pc-send/.pc-newthread)
+   和候选卡按钮都用它。删卡片机时不许连带删这条(2026-10-20 删过头一次,已补回)。 */
+.jc-btn {
+  margin: 4px 6px 0 0; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: inherit;
+}
+.jc-btn.ghost { opacity: 0.65; }
+
+/* ---------- 7h. 领航员在场形态:起书居中 + 悬浮球 ---------- */
+.nav-center { flex: 1; display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; padding: var(--space-7) var(--space-4); }
+.nav-center-inner { width: 100%; max-width: 540px; animation: navFadeUp var(--dur-3) var(--ease-out); }
+@keyframes navFadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.nav-center-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.nav-center-head .jc-ava, .nav-center-head .jc-fallback { width: 64px; height: 64px; font-size: 24px; }
+.nav-center-name { font-family: var(--font-brand); font-size: var(--fs-h2); }
+.nav-center-sub { color: var(--text-soft); font-size: var(--fs-sm); margin-top: 2px; }
+.nav-center-sub.hot { color: var(--seal); transition: color var(--dur-4); }
+.nav-strip { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.nav-strip .ns-seg { cursor: pointer; font-size: var(--fs-sm); color: var(--text-soft);
+  padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--line); }
+.nav-strip .ns-seg.done { color: var(--text); border-color: transparent; }
+.nav-strip .ns-seg.next { color: var(--text); border-color: var(--line-strong); font-weight: 600; }
+.nav-center .journey-card.nav-host { border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: var(--space-4); background: var(--surface); }
+.nav-center-foot { margin-top: var(--space-3); display: flex; justify-content: flex-end; }
+.nav-ball { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 32;
+  width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--surface); box-shadow: var(--shadow-2); cursor: pointer; padding: 0; }
+.nav-ball .jc-ava, .nav-ball .jc-fallback { width: 100%; height: 100%; border-radius: 50%; font-size: 18px; }
+.nav-ball .nav-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--seal); }
+.nav-ball.nav-handoff { animation: coachPulse 1.2s var(--ease-out) 1; }
+.nav-popover { position: fixed; right: var(--space-4); bottom: 64px; z-index: 33; width: 380px;
+  max-height: 74vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-3); padding: var(--space-3); }
+/* 正文阶段可把这枚浮层展开成右侧栏:全高、可拖宽(记住宽度不必,浏览器自带 resize)。
+   只盖在正文上、不挤布局——挪动主区会牵动编辑器与滚动位置,代价比收益大。 */
+.nav-popover.nav-side { right: 0; top: 0; bottom: 0; left: auto; width: var(--nav-side-w, 440px);
+  min-width: 320px; max-width: 80vw;   /* 能拖宽,但拖不到「窄得没法看」也盖不满整屏 */
+  max-height: none; border-radius: 0; border-right: none; resize: horizontal;
+  overflow: auto; padding: var(--space-4); box-shadow: var(--shadow-3); }
+.nav-popover.nav-side .pc-scroll { max-height: none; }
+.nav-pop-head { display: flex; justify-content: flex-end; gap: var(--space-1); margin-bottom: 2px; }
+/* 定宽:文案在「⇥ 展开 / ⇤ 收回」「复制」之间切换时不让整行抖动 */
+.nav-head-btn { flex: none; min-width: 64px; font-size: var(--fs-caption); padding: 3px 9px; }
+/* 领航员的字必须可选中、可复制(它会被频繁重绘,见 paintPartnerChat 的选区守卫) */
+.journey-card, .journey-card * { user-select: text; -webkit-user-select: text; }
+.nav-pop-list { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-2); }.nav-pop-list .np-item { font-size: var(--fs-sm); color: var(--text-soft); cursor: pointer; }
+.nav-pop-list .np-item::before { content: "●"; color: var(--seal); font-size: 8px; margin-right: 6px; }
+body.focus-mode .nav-ball, body.focus-mode .nav-popover { display: none; }
+/* 打字时只藏「浮层小球和大球」;展开成侧栏后**绝不藏**——那是一块常驻面板,
+   而 body.typing 在每次按键时加、停手 1.5 秒才摘(见 app.js noteTyping),
+   藏它等于侧栏一直闪,比挡字更烦。 */
+body.typing .nav-ball, body.typing .nav-popover:not(.nav-side) { display: none; }
+/* 侧栏展开时把领航员球收起来:它固定在右下角,会被全高侧栏整个盖住,
+   留一个「看得见却点不到」的东西比藏掉更糟(收回用侧栏头部的「⇤ 收回」) */
+body.nav-side-on .nav-ball { display: none; }
+.nav-center-title { flex: 1; min-width: 0; }   /* 占满余宽,把右侧元素顶到最右。形态由 navMode() 从解锁状态推导,**没有**切换按钮 */
+.pc-mode-toggle { flex: none; font-size: var(--fs-caption); padding: 3px 9px; align-self: flex-start; }
+
+/* ---------- 7i. 书房伙伴对话(P3,与卡片机并存):气泡流 + 候选卡 ---------- */
+.journey-card.partner-chat { display: flex; flex-direction: column; gap: var(--space-2); }
+.pc-scroll { display: flex; flex-direction: column; gap: var(--space-3);
+  overflow-y: auto; max-height: 46vh; min-height: 120px; padding-right: 2px; }
+.nav-center .journey-card.partner-chat .pc-scroll { max-height: 44vh; }
+.pc-empty { color: var(--text-mute); font-size: var(--fs-sm); font-style: italic;
+  padding: var(--space-2) 0; }
+/* 新作者第一次进来的空对话:一句话起点 + 可展开的速查(2026-10-20) */
+.pc-empty.pc-welcome { font-style: normal; color: var(--text-soft); }
+.pc-welcome .pcw-title { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.pc-welcome .pcw-sub { font-size: var(--fs-xs); line-height: 1.7; }
+.pc-welcome .jc-guide { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.pc-thinking { display: flex; align-items: center; gap: 7px; color: var(--text-mute);
+  font-size: var(--fs-sm); font-style: italic; padding: var(--space-2) 0; }
+/* 「曌」加载图标:日月绕中心轮转(日月当空,时光流转=在思考) */
+.pc-zhao { flex: none; width: 17px; height: 17px; color: var(--seal); }
+.pc-zhao-spin { transform-origin: 12px 12px; animation: pc-zhao-turn 2.6s linear infinite; }
+@keyframes pc-zhao-turn { to { transform: rotate(360deg); } }
+/* v2 思考层:思考流灰字折叠块(思考中展开实时流 / 出正文后收成「已思考 ▸」) */
+.pc-reasoning { border-left: 2px solid var(--line-soft); padding: 1px 0 1px 9px; margin: 2px 0; }
+.pc-reasoning > summary { display: flex; align-items: center; gap: 7px; cursor: pointer;
+  color: var(--text-mute); font-size: var(--fs-sm); font-style: italic; list-style: none; }
+.pc-reasoning > summary::-webkit-details-marker { display: none; }
+.pc-reasoning-body { margin-top: 4px; max-height: 30vh; overflow-y: auto; white-space: pre-wrap;
+  word-break: break-word; line-height: 1.55; font-size: var(--fs-xs); color: var(--text-soft); }
+.pc-row { display: flex; gap: var(--space-2); align-items: flex-start; min-width: 0; }
+.pc-row.pc-user { flex-direction: row-reverse; }
+.pc-avatar { flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: var(--fs-caption); color: var(--text-soft);
+  background: var(--line-soft); }
+.pc-row.pc-user .pc-avatar { background: var(--accent-tint); color: var(--accent-ink); font-weight: 700; }
+.pc-bubble { max-width: 82%; padding: 7px 11px; border-radius: var(--radius-md); line-height: 1.55;
+  font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word;
+  background: var(--surface); border: 1px solid var(--line); }
+.pc-row.pc-user .pc-bubble { background: var(--accent-tint); border-color: transparent; }
+.pc-row.pc-live .pc-bubble { opacity: .7; }
+/* 2026-11-08（作者：agent 工作时没有进行中标志）：知识顾问/语料分析师对话窗的
+   「正在思考」气泡——三个跳动点 + 状态文字（status 事件会实时更新文字）。 */
+.agent-working-bubble { display: flex; align-items: center; gap: 8px; color: var(--text-mute); }
+.agent-working-dots { display: inline-flex; gap: 3px; }
+.agent-working-dots::before,
+.agent-working-dots::after { content: ""; }
+.agent-working-dots i { display: none; }
+.agent-working-dots { position: relative; width: 18px; height: 8px; }
+.agent-working-dots::before { position: absolute; left: 0; top: 0; width: 4px; height: 4px;
+  border-radius: 50%; background: currentColor; animation: awDot 1.2s infinite ease-in-out; }
+.agent-working-dots i:nth-child(1) { display: block; position: absolute; left: 7px; top: 0;
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  animation: awDot 1.2s .15s infinite ease-in-out; }
+.agent-working-dots i:nth-child(2) { display: block; position: absolute; left: 14px; top: 0;
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  animation: awDot 1.2s .3s infinite ease-in-out; }
+@keyframes awDot { 0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+  30% { transform: translateY(-4px); opacity: 1; } }
+.agent-working-label { font-size: var(--fs-xs); }
+/* 夜间补缺最终班(§2e):1:1 任务行——轻量系统行,弱化展示 */
+.pc-row.pc-system .pc-bubble { font-size: var(--fs-xs); color: var(--text-mute);
+  background: var(--bg-sunken); border-style: dashed; }
+.pc-tool { font-size: var(--fs-xs); color: var(--text-mute); padding: 1px 4px; }
+.pc-result { font-size: var(--fs-xs); color: var(--text-soft); border: 1px dashed var(--line);
+  border-radius: var(--radius-sm); padding: 4px 8px; background: var(--bg-sunken); }
+.pc-result summary { cursor: pointer; }
+.pc-result.err summary { color: var(--danger); }
+.pc-result-text { margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--text-soft); }
+.pc-tool-active { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs);
+  color: var(--text-mute); padding: 1px 4px; }
+.pc-spinner { flex: none; width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid var(--line); border-top-color: var(--text-soft);
+  animation: pc-spin 0.7s linear infinite; }
+@keyframes pc-spin { to { transform: rotate(360deg); } }
+.pc-tool-done { font-size: var(--fs-xs); color: var(--text-soft); padding: 1px 4px; }
+.pc-stopped { text-align: center; font-size: var(--fs-xs); color: var(--text-mute);
+  font-style: italic; padding: 2px 0; }
+.pc-proposal.pc-proposal-moot { opacity: .55; }   /* FB-B 模型A:同轮兄弟候选已落盘,本卡变灰 */
+.pc-proposal-mootnote { font-size: var(--fs-xs); color: var(--text-mute); font-style: italic; margin-top: 4px; }
+.pc-error { font-size: var(--fs-sm); color: var(--danger); background: var(--danger-tint);
+  border-radius: var(--radius-sm); padding: 6px 9px; }
+/* 候选卡:虚线边 + 「候选」角标——挡 AI 文字混进书的唯一结构性保证(spec §6.1) */
+.pc-proposal { position: relative; border: 1.5px dashed var(--seal-line); border-radius: var(--radius-md);
+  padding: var(--space-3); background: var(--seal-tint); margin: var(--space-1) 0; }
+.pc-proposal-badge { position: absolute; top: -9px; left: 10px; background: var(--seal);
+  color: var(--text-on-accent); font-size: var(--fs-caption); font-weight: 700;
+  padding: 1px 8px; border-radius: var(--radius-pill); }
+.pc-proposal-slot { font-size: var(--fs-xs); color: var(--seal-ink); font-weight: 700; margin-bottom: 4px; }
+.pc-proposal-before { font-size: var(--fs-xs); color: var(--text-mute); margin-bottom: 6px; }
+.pc-proposal-content { font-size: var(--fs-sm); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+/* 2026-10-23:候选卡上的「附言」——模型要说给作者听、但**没有**写进设定的那段。
+   故意弱化,免得作者把它当成将要落盘的内容。 */
+/* 2026-11-12（用户第 11 条 + 一处真缺陷）：候选卡上的灰色小字**不显示**。
+   为什么连「✓ 已落库 → 路径」也一起藏：作者会把整张卡复制到输入框改完发回来，
+   这些界面标记就跟着进了正文，模型读到「已落库」便以为这一格已经落盘、
+   不再把作者改过的内容当新提案复核。信息没丢——落库路径挂在卡片的 title 上，
+   鼠标悬停仍能看到。后端 `agent_chat.strip_ui_marks()` 另外兜一层（从历史里复制也挡得住）。 */
+.pc-proposal-note,
+.pc-proposal-done { display: none; }
+
+.pc-proposal-note { margin-top: 6px; font-size: var(--fs-xs); line-height: 1.5; color: var(--text-mute);
+  border-left: 2px solid var(--line); padding-left: 8px; white-space: pre-wrap; word-break: break-word; }
+.pc-proposal-actions { margin-top: var(--space-2); }
+.pc-proposal-done { margin-top: var(--space-2); font-size: var(--fs-xs); color: var(--success); font-weight: 600; }
+.pc-input-row { display: flex; gap: var(--space-2); align-items: flex-end;
+  border-top: 1px solid var(--line); padding-top: var(--space-2); }
+.pc-input { flex: 1; margin: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: inherit; font: inherit; resize: none;
+  min-width: 0; min-height: 56px; max-height: min(220px, 30vh); overflow-y: hidden; }
+.pc-input:disabled { opacity: .55; }
+.pc-send { flex: none; margin: 0; }
+.pc-newthread { align-self: flex-end; font-size: var(--fs-caption); }
+
+/* ---------- 7g. 脉络:三个只读投影(时间轴/伏笔账本/专名册) ---------- */
+.studio-card { width: 560px; }
+.studio-body { margin-top: var(--space-3); max-height: 56vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; }
+.st-row { display: flex; gap: var(--space-3); align-items: baseline; padding: 7px 10px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--surface); }
+.st-row.st-click { cursor: pointer; }
+.st-row.st-click:hover { border-color: var(--line-strong); }
+.st-ch { flex: none; font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-mute); }
+.st-body { min-width: 0; font-size: var(--fs-sm); line-height: 1.6; }
+.st-plan { color: var(--text); }
+.st-recap { margin-top: 2px; color: var(--text-soft); font-family: var(--font-read); white-space: pre-wrap; }
+.st-kind { flex: none; font-size: var(--fs-caption); padding: 1px 7px; border-radius: var(--radius-pill); }
+.st-plant { background: var(--seal-tint); color: var(--seal-ink); }        /* 埋设=落了一枚扣 */
+.st-push  { background: var(--line-soft); color: var(--text-soft); }
+.st-pay   { background: var(--accent-tint); color: var(--accent-ink); }    /* 回收=墨落定 */
+.st-stale { margin-left: 8px; font-size: var(--fs-caption); color: var(--seal); font-weight: 600; }
+.st-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-chip { font-size: var(--fs-sm); padding: 3px 10px; border-radius: var(--radius-pill);
+  background: var(--surface); border: 1px solid var(--line); }
+
+/* 除虫报告条目 */
+.bug-item { padding: var(--space-3); border-bottom: 1px solid var(--line-soft); }
+.bug-item .bug-head { font-weight: 600; margin-bottom: 4px; }
+.bug-item .bug-ev { color: var(--text-soft); font-size: var(--fs-sm); margin: 2px 0; }
+.bug-item .bug-fix { color: var(--seal-ink); font-size: var(--fs-sm); margin-top: 4px; }
+
+/* ---------- 8. 专注模式 ---------- */
+body.focus-mode .sidebar { margin-left: -256px; opacity: 0; pointer-events: none; }
+body.focus-mode .topbar { opacity: 0; transform: translateY(-100%); height: 0; padding: 0;
+  pointer-events: none; overflow: hidden; }
+body.focus-mode .editor-scroll { padding-top: var(--space-8); }
+body.focus-mode #editor { box-shadow: none; border-color: transparent; background: transparent; }
+/* 专注时编辑器头淡出,移到顶部边缘再浮现(工具栏滚动即隐) */
+body.focus-mode .editor-head { opacity: 0; transition: opacity var(--dur-3) var(--ease-soft); }
+body.focus-mode .editor-head:hover { opacity: 1; }
+.focus-exit { position: fixed; top: var(--space-3); right: var(--space-4); z-index: 30;
+  display: none; opacity: .4; transition: opacity var(--dur-2); }
+body.focus-mode .focus-exit { display: block; }
+.focus-exit:hover { opacity: 1; }
+
+/* ---------- 9. 弹层 / 流水线 ---------- */
+.overlay { position: fixed; inset: 0; background: var(--overlay-scrim);
+  display: flex; align-items: center; justify-content: center; padding: var(--space-5);
+  animation: fade var(--dur-3) var(--ease-out); z-index: 40; }
+.run-card {
+  box-sizing: border-box; width: 600px; max-width: calc(100vw - 24px); max-height: 88vh; overflow-y: auto;
+  overflow-wrap: anywhere;
+  background: var(--surface-raised); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: var(--space-6); box-shadow: var(--shadow-4);
+  animation: rise var(--dur-4) var(--ease-out);
+}
+.run-card h3 { margin: 0 0 var(--space-4); font-family: var(--font-brand); font-size: var(--fs-h1); font-weight: 400; }
+.run-card > .hint { margin-top: 0; margin-bottom: var(--space-3); }
+
+/* 工序带:pill + 连线(完成的连线染金) */
+.pills { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+.pill {
+  padding: 7px 14px; border-radius: var(--radius-pill); border: 1px solid var(--line);
+  background: var(--surface); color: var(--text-soft); font-size: var(--fs-sm); white-space: nowrap;
+  transition: border-color var(--dur-3), color var(--dur-3), background-color var(--dur-3);
+}
+.connector { width: 18px; height: 2px; background: var(--line); flex: none;
+  transition: background-color var(--dur-3); }
+.pill.running { border-color: var(--accent); color: var(--accent); background: var(--accent-tint);
+  animation: breathe 1.6s var(--ease-inout) infinite; }
+.pill.done { border-color: var(--accent); color: var(--text-on-accent); background: var(--accent); }
+.pill.done + .connector { background: var(--seal); }
+
+.run-log { margin-top: var(--space-4); max-height: 200px; overflow-y: auto;
+  font-size: var(--fs-sm); color: var(--text-soft); white-space: pre-wrap;
+  font-family: var(--font-mono); line-height: 1.7; }
+.run-log .ok { color: var(--success); }
+.run-log .err { color: var(--danger); }
+.run-stream { margin-top: var(--space-3); max-height: 260px; overflow-y: auto; white-space: pre-wrap;
+  font-family: var(--font-read); font-size: var(--fs-read); line-height: 1.8; color: var(--text);
+  background: var(--accent-tint); border: 1px solid var(--line); border-radius: var(--radius-md);
+  padding: var(--space-4); }
+.run-stream:empty { display: none; }
+.run-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+
+/* learn 变化:金=更像你 / 删除=拆掉的线头 */
+.learn-changes { margin-top: var(--space-3); max-height: 300px; overflow-y: auto;
+  font-size: var(--fs-sm); font-family: var(--font-read); line-height: 1.7; }
+.learn-changes .chg { padding: 4px 9px; border-radius: var(--radius-xs); margin: 3px 0; white-space: pre-wrap; }
+.learn-changes .add { background: var(--seal-tint); color: var(--seal-ink);
+  box-shadow: inset 3px 0 var(--seal-line); }
+.learn-changes .rem { background: var(--bg-sunken); color: var(--text-mute); text-decoration: line-through; }
+.learn-changes .sub-head { margin: var(--space-3) 0 6px; font-family: var(--font-ui);
+  font-size: var(--fs-xs); font-weight: 700; color: var(--text-soft); }
+.learn-changes .learn-warn { background: var(--danger-tint); color: var(--danger);
+  border: 1px solid var(--danger); border-radius: var(--radius-sm); padding: 8px 11px;
+  margin-bottom: var(--space-3); font-family: var(--font-ui); font-size: var(--fs-sm); line-height: 1.6; }
+.recap-block { background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: var(--space-3); font-family: var(--font-read); font-size: var(--fs-sm); line-height: 1.7;
+  white-space: pre-wrap; color: var(--text-soft); }
+
+/* 重写选段 / seed */
+.rewrite-src, .rewrite-result { margin: var(--space-2) 0; padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md); font-family: var(--font-read); font-size: var(--fs-read);
+  line-height: 1.8; white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+.rewrite-src { background: var(--bg-sunken); color: var(--text-soft); }
+.rewrite-result { background: var(--seal-tint); color: var(--text); border: 1px solid var(--seal-line); }
+#rewrite-instruction { width: 100%; margin: 6px 0; }
+
+/* 行内改写面板:fixed 浮层,锚在选区/行下方(token 对照 .seal-bar,以文件内既有变量为准) */
+.rewrite-inline { position: fixed; z-index: 36; background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-md); box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: var(--space-3) var(--space-4); }
+.rewrite-inline .rewrite-src { max-height: 90px; overflow-y: auto; }
+.rewrite-inline .rewrite-result { max-height: 160px; overflow-y: auto; }
+.line-edit-btn { position: fixed; z-index: 34; display: none; padding: 1px 8px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg);
+  color: var(--seal-ink); font-size: var(--fs-xs); }
+.line-edit-btn.on { display: inline-block; }
+body.typing .line-edit-btn { display: none; }   /* 打字时绝不打扰(spec §4 实现风险条) */
+.seed-text { height: 200px; margin-top: var(--space-3); font-family: var(--font-read); }
+.row-end { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-3); }
+/* 2026-11-16（复审 P3-2）：上一条加了 flex-wrap，按钮文字不再被挤成逐字竖排；
+   换行时保持按钮本身不被压扁。 */
+.row-end > button { flex: 0 0 auto; white-space: nowrap; }
+.app-version { margin-top: var(--space-3); text-align: right; color: var(--text-mute); font-size: var(--fs-xs); letter-spacing: .02em; }
+/* 「环境自检」从按钮降级成版本号旁边的小链接(2026-10-21 作者嫌占版面):
+   保留入口、不抢视线;真出问题时它自己会把失败项列在浮窗里。 */
+.app-version .doc-link { margin-left: 10px; color: var(--text-mute); text-decoration: none;
+  border-bottom: 1px dotted var(--line-strong); cursor: pointer; }
+.app-version .doc-link:hover { color: var(--text); border-bottom-color: var(--text-soft); }
+
+/* seed 来源切换(样本 / 继承另一本书) */
+.seg { display: inline-flex; padding: 3px; background: var(--bg-sunken); border-radius: var(--radius-sm);
+  border: 1px solid var(--line); gap: 2px; margin-bottom: var(--space-2); }
+.seg-btn { border: none; background: transparent; color: var(--text-soft); padding: 5px 12px;
+  border-radius: 6px; font-size: var(--fs-sm); cursor: pointer; }
+.seg-btn.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); font-weight: 600; }
+
+/* 通用引导浮层(skills 介绍 / 外置大脑空状态) */
+.guide-card { width: 460px; }
+.guide-lead { font-size: var(--fs-body); color: var(--text); line-height: 1.75; margin: 0 0 var(--space-2); }
+.guide-who { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs);
+  color: var(--accent-ink); background: var(--accent-tint); border: 1px solid var(--line);
+  border-radius: var(--radius-pill); padding: 3px 10px; margin-bottom: var(--space-1); }
+.guide-ico { width: 14px; height: 14px; }
+.sens-list { margin: var(--space-2) 0; max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; }
+.sens-row { display: flex; align-items: center; gap: var(--space-3); padding: 5px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface); font-size: var(--fs-sm); }
+.sens-word { font-weight: 600; color: var(--danger); }
+.sens-cat { color: var(--text-soft); font-size: var(--fs-xs); }
+.sens-cnt { margin-left: auto; color: var(--text-mute); font-family: var(--font-mono); font-size: var(--fs-xs); }
+
+/* 本章版本历史 */
+.history-list { margin-top: var(--space-3); max-height: 50vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--space-2); }
+/* 资料账本:四个投影 + 提案勾选(以前账本只能用记事本打开看) */
+.facts-body { margin: var(--space-3) 0; max-height: 46vh; overflow: auto; }
+.facts-sec { border-top: 1px solid var(--line-soft); padding: var(--space-2) 0; }
+.facts-sec-title { font-weight: 600; margin-bottom: 4px; }
+.facts-row { display: flex; gap: var(--space-2); align-items: flex-start;
+  font-size: var(--fs-sm); color: var(--text-soft); padding: 2px 0;
+  overflow-wrap: anywhere; word-break: break-word; }
+input.wide { min-width: 220px; }
+
+/* 回收站:以前是运行时节点 + 内联 #fff/#222(深色主题里是一块白板),现在走设计令牌 */
+.trash-row { display: flex; align-items: center; gap: var(--space-3);
+  border-top: 1px solid var(--line-soft); padding: 8px 0; }
+.trash-name { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+
+.hist-item { border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: var(--space-3); background: var(--surface); }
+.hist-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.hist-meta { display: flex; align-items: baseline; gap: var(--space-3); }
+.hist-time { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text); }
+.hist-chars { font-size: var(--fs-xs); color: var(--text-mute); }
+.hist-preview { margin-top: 6px; font-family: var(--font-read); font-size: var(--fs-sm);
+  color: var(--text-soft); line-height: 1.6; max-height: 3.2em; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* key 框「该填了」高亮(首跑没填 key 就写章时:自动打开设置并闪一下) */
+@keyframes key-flash { 0%,100% { box-shadow: var(--shadow-focus); } 50% { box-shadow: 0 0 0 3px var(--seal-line); } }
+input.flash { border-color: var(--seal); animation: key-flash .5s var(--ease-inout) 3; }
+
+/* 设置卡(后端配置从顶栏收进来) */
+.settings-card { width: 440px; }
+/* 首页与书房共用确认流程；首页同样提供模态窗口样式。 */
+.study-confirm { box-sizing: border-box; width: min(520px, 92vw); max-height: 85vh; overflow-y: auto;
+  border: 1px solid var(--line-strong); border-radius: 12px; padding: 24px;
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-3); }
+.study-confirm::backdrop { background: rgba(0,0,0,.45); }
+.study-confirm .confirm-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+/* 审稿意见跟随编辑主区宽度，长内容由窗口内滚动。 */
+#vt-review-overlay { right: auto; box-sizing: border-box; padding: 24px; }
+#vt-review-overlay .review-card { width: 100%; max-width: 1100px; max-height: 82vh; overflow-y: auto; }
+#vt-review-overlay .md-preview { max-width: none; overflow-wrap: anywhere; }
+#brain-fold > summary { cursor: pointer; list-style: none; }
+#brain-fold > summary::-webkit-details-marker { display: none; }
+#brain-fold[open] > summary .disclosure { transform: rotate(90deg); }
+#editor-path { min-width: 0; overflow-wrap: anywhere; }
+#btn-rename-file { flex: none; }
+.file-rename-card { width: min(480px, calc(100vw - 32px)); }
+.file-rename-card input { width: 100%; box-sizing: border-box; margin-top: 8px; }
+@media (max-width: 700px) {
+  #vt-review-overlay { padding: 12px; }
+  .pc-input-row { flex-wrap: wrap; }
+  .pc-input-row .pc-input { flex-basis: 100%; }
+}
+.settings-card .field-label { display: block; color: var(--text-soft); font-size: var(--fs-xs);
+  margin: var(--space-3) 0 5px; }
+.settings-card .field-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+/* min-width:0 是关键(2026-10-20):flex 项默认 min-width:auto,下拉框会按最长的模型名
+   撑出固有宽度,把「拉取可用模型」整个挤出卡片外——于是那个按钮"经常看不到"。 */
+.settings-card .field-row select, .settings-card .field-row input { flex: 1 1 0; width: auto; min-width: 0; }
+.settings-card .field-row button { flex: none; }
+
+/* 本书数据:规整矩阵(3 列),不再挤成一排 */
+.data-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2); margin-top: 4px;
+}
+.data-grid > button { width: 100%; justify-content: center; }
+.settings-card #model-custom, .settings-card #base-url { margin-top: var(--space-2); }
+.settings-card .settings-status-row { margin-top: var(--space-2); min-height: 20px; }
+
+/* 导入资料夹:确认屏落位预览 */
+.folder-routed { margin: var(--space-3) 0; max-height: 320px; overflow-y: auto; }
+.folder-routed .fr-bucket { font-weight: 600; margin-top: var(--space-2); }
+.folder-routed .fr-file { color: var(--text-soft); font-size: var(--fs-sm); padding: 2px 0; }
+.folder-routed .fr-unknown select { margin-left: var(--space-2); }
+
+/* 从正文提炼设定:诊断确认屏 */
+.diag-seg { margin: var(--space-2) 0; }
+.diag-seg-head { font-weight: 600; display: block; margin-bottom: 4px; }
+.diag-seg-text { width: 100%; font: inherit; border-radius: 8px; padding: 6px 8px;
+  border: 1px solid rgba(127,127,127,0.35); background: transparent; color: inherit; resize: vertical; }
+
+/* doctor 面板 */
+.doctor-list { margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.doctor-item { display: flex; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.doctor-item .di-mark { flex: none; font-size: var(--fs-h2); line-height: 1.3; }
+.doctor-item.ok .di-mark { color: var(--success); }
+.doctor-item.bad { background: var(--danger-tint); border-color: var(--danger); }
+.doctor-item.bad .di-mark { color: var(--danger); }
+.doctor-item .di-name { font-weight: 600; }
+.doctor-item .di-fix { color: var(--text-soft); font-size: var(--fs-sm); margin-top: 2px; }
+
+/* ---------- 10. 命令面板(⌘K) ---------- */
+.cmdk { position: fixed; inset: 0; background: var(--overlay-scrim); z-index: 50;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 14vh;
+  animation: fade var(--dur-2) var(--ease-out); }
+.cmdk-box { width: 540px; max-width: 92vw; background: var(--surface-raised);
+  border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-4);
+  overflow: hidden; animation: rise var(--dur-3) var(--ease-out); }
+.cmdk-box input { border: none; border-bottom: 1px solid var(--line); border-radius: 0;
+  padding: var(--space-4); font-size: var(--fs-h2); background: transparent; }
+.cmdk-box input:focus { box-shadow: none; }
+.cmdk-list { max-height: 360px; overflow-y: auto; padding: var(--space-2); }
+.cmdk-item { display: flex; align-items: center; gap: var(--space-3); padding: 10px 12px;
+  border-radius: var(--radius-sm); cursor: pointer; }
+.cmdk-item .ci-key { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-xs);
+  color: var(--text-mute); }
+.cmdk-item.sel, .cmdk-item:hover { background: var(--accent-tint); color: var(--accent-ink); }
+.cmdk-empty { padding: var(--space-4); color: var(--text-mute); font-size: var(--fs-sm); text-align: center; }
+
+/* ---------- 11. toast ---------- */
+.toast { position: fixed; bottom: var(--space-5); left: 50%; transform: translateX(-50%) translateY(0);
+  background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: var(--radius-sm);
+  z-index: 60; box-shadow: var(--shadow-3); font-size: var(--fs-sm);
+  animation: toast-in var(--dur-3) var(--ease-out);   max-width: min(78vw, 560px);   /* 长路径/长句不许把胶囊顶出屏幕 */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+[data-theme="dark"] .toast { background: var(--surface-raised); color: var(--text); border: 1px solid var(--line); }
+.toast.err { background: var(--danger); color: #F7F3EA; }
+
+/* ---------- 12. 织布机线描标记(品牌) ---------- */
+.weave-mark { stroke: var(--text-soft); }
+.weave-mark .warp { stroke: var(--line-strong); }
+/* 纬线:浅色用墨字(白色会糊在白卡上),深色用纯白 */
+.weave-mark .weft { stroke: var(--text); }
+[data-theme="dark"] .weave-mark .weft { stroke: var(--text); }
+
+/* ---------- 13. 动画 ---------- */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .72; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; }
+}
+
+/* ---------- 14. 窄窗适配(min 920px 仍舒适) ---------- */
+@media (max-width: 1000px) {
+  .sidebar { width: 224px; }
+  .kbd-hint { display: none; }
+}
+/* 2026-11-16（用户截图裁定）：360px 级窄窗下书名/按钮被逐字竖排、角色卡被压成竖条。
+   桌面应用本身按 >=720px 三栏设计；这里不做重排，而是保底宽并允许横向滚动，
+   宁可让作者左右滚，也不把文字压成竖排（改动面最小、不动任何业务流程）。 */
+@media (max-width: 720px) {
+  .app { overflow-x: auto; }
+  .main { min-width: 720px; }
+  .topbar { min-width: 720px; }
+}
+#proj-title { min-width: 0; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 15. 新手引导:T0 就地气泡 + T1 样例首跑聚光 ---------- */
+/* 金色脉冲:把注意力引向 learn 按钮 */
+@keyframes coachPulse {
+  0%   { box-shadow: 0 0 0 0 var(--seal-line); }
+  70%  { box-shadow: 0 0 0 9px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pulse-gold { animation: coachPulse 1.5s var(--ease-out) infinite; border-color: var(--seal) !important; }
+
+/* T0:不挡屏的就地气泡,锚在目标附近 */
+.coach-pop {
+  position: fixed; z-index: 60; width: 320px; max-width: calc(100vw - 16px);
+  background: var(--surface-raised); border: 1px solid var(--seal-line);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  box-shadow: var(--shadow-4); animation: rise var(--dur-3) var(--ease-out);
+}
+.coach-pop .cp-body { font-size: var(--fs-sm); line-height: 1.7; color: var(--text); }
+.coach-pop b { color: var(--seal-ink); font-weight: 700; }
+.coach-pop .cp-foot { margin-top: var(--space-3); display: flex; justify-content: flex-end; }
+.coach-pop .jc-ava, .coach-pop .jc-fallback { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: none; }
+
+/* 气泡/提示卡共用的小箭头(指向锚点) */
+.coach-pop::before {
+  content: ""; position: absolute; left: var(--arrow-x, 50%); width: 12px; height: 12px;
+  background: var(--surface-raised); transform: translateX(-50%) rotate(45deg);
+}
+.coach-pop::before { border: 1px solid var(--seal-line); }
+.coach-pop.below::before { top: -7px; border-right: 0; border-bottom: 0; }
+.coach-pop.above::before { bottom: -7px; border-left: 0; border-top: 0; }
+
+/* ---------- 镜台(它有多懂你):手改量双曲线 + 指纹 + 人格增补 ----------
+   §6 朱＝你的痕迹:两条线正好对上产品两轴——【改写率】是 voice(写作指纹那一轴),
+   给朱;【增删率】是 what(外置大脑/人格增补那一轴),给淡墨。于是一屏只有一处红,
+   而且红落在语义上真正属于它的那条线上(自检三问:≤3 色系 ✓ / 红只一处 ✓ / 无国风贴图 ✓)。 */
+.mi-sec { margin-bottom: var(--space-5); }
+.mi-sec:last-child { margin-bottom: 0; }
+.mi-head { display: flex; align-items: baseline; gap: var(--space-2);
+  font-size: var(--fs-sm); color: var(--text-soft); margin-bottom: var(--space-2); }
+.mi-head .mi-sub { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-mute); }
+
+/* 英雄数字:最近一章的两个率。排版即界面——这两个数就是「它有多懂你」的答案 */
+.mi-hero { display: flex; gap: var(--space-5); align-items: flex-end; margin-bottom: var(--space-3); }
+.mi-stat { display: flex; flex-direction: column; gap: 2px; }
+.mi-val { font-family: var(--font-mono); font-size: var(--fs-display); line-height: 1.1; color: var(--text); }
+.mi-val.is-seal { color: var(--seal-ink); }
+.mi-key { font-size: var(--fs-caption); color: var(--text-mute); }
+
+/* 曲线:经纬隐喻落在「结构件」上(原则 8),不贴图 */
+.mi-chart { width: 100%; height: 132px; display: block; }
+.mi-grid { stroke: var(--line-soft); stroke-width: 1; }
+.mi-axis { stroke: var(--line); stroke-width: 1; }
+.mi-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.mi-line.is-seal { stroke: var(--seal); }
+.mi-line.is-ink  { stroke: var(--text-mute); stroke-dasharray: 3 3; }
+.mi-dot { r: 2.5; }
+.mi-dot.is-seal { fill: var(--seal); }
+.mi-dot.is-ink  { fill: var(--text-mute); }
+.mi-xlab { font-family: var(--font-mono); font-size: 10px; fill: var(--text-mute); }
+
+.mi-legend { display: flex; gap: var(--space-4); font-size: var(--fs-caption);
+  color: var(--text-mute); margin-top: var(--space-2); }
+.mi-swatch { display: inline-block; width: 14px; height: 0; vertical-align: middle;
+  margin-right: 6px; border-top: 1.5px solid var(--text-mute); }
+.mi-swatch.is-seal { border-top-color: var(--seal); }
+.mi-swatch.is-ink { border-top-style: dashed; }
+
+.mi-cover { font-family: var(--font-mono); font-size: var(--fs-caption);
+  color: var(--text-mute); margin-top: var(--space-2); }
+
+/* anchor 原句:朱批底,同 §6.4「新学进的用 seal-tint 底」 */
+.mi-anchor { font-size: var(--fs-sm); color: var(--text-soft); line-height: 1.75;
+  padding: 5px 10px; border-radius: var(--radius-xs); background: var(--seal-tint);
+  margin-bottom: 5px; }
+.mi-extra { font-size: var(--fs-sm); color: var(--text-soft); line-height: 1.8; }
+.mi-role { font-family: var(--font-mono); font-size: var(--fs-caption);
+  color: var(--text-mute); margin-top: var(--space-3); }
+.mi-role:first-child { margin-top: 0; }
+
+/* 镜台里唯一的写操作:撤销最近一次学到的写法。做成行内幽灵键,别让它抢走只读投影的调子。 */
+.mi-role { display: flex; align-items: baseline; gap: var(--space-2); }
+.mi-revert { margin-left: auto; font-family: var(--font-ui); font-size: var(--fs-caption);
+  padding: 1px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-mute); cursor: pointer; }
+.mi-revert:hover:not(:disabled) { border-color: var(--seal); color: var(--seal); }
+.mi-revert:disabled { opacity: .45; cursor: default; }
+
+/* 待确认横幅:工具条是 nowrap 的,不让它挤在按钮缝里(会撑破并裁掉右边的按钮) */
+.editor-actions { flex-wrap: wrap; }
+#pending-banner { flex: 1 1 100%; white-space: normal; text-align: left;
+  cursor: pointer; font-size: var(--fs-xs); color: var(--text-soft); }
+
+/* 快照列表:一行一版,右侧是操作 */
+.snap-list { margin-top: 10px; max-height: 46vh; overflow: auto; }
+.snap-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft, #2a2a2a); font-size: var(--fs-xs); }
+.snap-row .snap-name { flex: 1 1 auto; font-family: var(--mono, monospace); }
+.snap-row .snap-meta { color: var(--text-soft); white-space: nowrap; }
+
+/* R21 槽表:一行一个用途。
+   作者 2026-10-20：原先只有一条细分隔线，条目之间看着不分明 —— 改成淡色框，一条一框。 */
+.route-slots { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; }
+.route-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 12px; font-size: var(--fs-xs);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--surface-raised, var(--surface)); }
+.route-row .route-name { flex: 0 0 140px; font-weight: 600; line-height: 1.35; }
+/* 「哪些角色用这一格」:名字下面那行灰字(2026-10-20 需求确认) */
+.route-row .route-name .route-who { font-weight: 400; font-size: var(--fs-caption);
+  color: var(--text-mute); }
+.route-row .route-now { color: var(--text-soft); flex: 1 1 160px; }
+.route-row input[type="text"], .route-row input[type="number"] { flex: 1 1 110px; min-width: 0; }
+.route-row .context-len-status { flex: 1 1 160px; }
+.route-row.required .route-name::after { content: " *"; color: var(--warn, #d08a2a); }
+
+/* R15 文风档案(2026-10-20 改成文档库:粘贴 / 浏览导入 / 勾选逐篇蒸馏 / 删除) */
+.style-card { width: 700px; max-width: 94vw; }
+.style-list { margin: 8px 0; max-height: 34vh; overflow: auto; }
+/* 每篇文档行:2026-11-03（作者五点反馈⑤）两行化——上行 勾+标题+删除,
+   下行 元信息全宽（字数·蒸馏状态不再截断）。 */
+.style-doc { display: block; padding: 6px 8px; margin-bottom: 2px;
+  border: 1px solid var(--line-soft, #2a2a2a); border-radius: var(--radius-sm); font-size: var(--fs-xs); }
+.style-doc.done { background: var(--bg-sunken); }        /* 已蒸过的淡底,一眼能扫出差别 */
+.style-doc .sd-top { display: flex; align-items: center; gap: 8px; }
+.style-doc .sd-top input[type="checkbox"] { flex: 0 0 auto; width: 14px; height: 14px; margin: 0; }
+.style-doc .sd-title { flex: 1 1 auto; min-width: 0; font-weight: 600; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.style-doc .sd-meta-full { color: var(--text-soft); font-family: var(--font-mono);
+  margin: 3px 0 0 22px; line-height: 1.5; }
+.style-doc .sd-del { flex: none; background: none; border: none; cursor: pointer;
+  color: var(--text-mute); font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: var(--radius-xs); }
+.style-doc .sd-del:hover { color: var(--danger, #b3261e); background: var(--bg-sunken); }
+/* 「强度」那一行(2026-10-21 按作者截图重排):label 定宽、select 定宽。
+   2026-11-03（五点⑤）：细致度/注入量两 knob 并排一行,各自 label+select,说明进 field-label。 */
+.style-knob { gap: 8px; }
+.style-knob .sk-label { flex: 0 0 48px; color: var(--text-soft); font-size: var(--fs-xs); }
+.style-knob .sk-sel { flex: 1 1 150px; min-width: 0; }
+.style-note { margin: 0; color: var(--text-mute);
+  font-size: var(--fs-xs); line-height: 1.5; }
+/* 动作行:两个按钮并排,「正在用…」单独占下一行(它比较长) */
+.style-actions { gap: 8px; }
+.style-actions .style-use-note { flex: 1 1 100%; margin: 2px 0 0; }
+/* 书目录不在了时的整块提示:不糊后端原始报错,只给人话 + 出口 */
+.style-blocked { padding: 14px 12px; border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm); color: var(--text-soft); font-size: var(--fs-sm); line-height: 1.7; }
+.style-blocked b { color: var(--warn, #d08a2a); }
+.style-sum { margin-left: 8px; color: var(--text-soft); font-weight: 400; }
+#style-text { width: 100%; font-family: var(--mono, monospace); font-size: var(--fs-xs); }
+#style-error { margin-top: 6px; }
+
+/* R10 三栏合并:三列等宽,窄屏下来回滚 */
+.merge-card { width: min(1200px, 94vw); }
+.merge-cols { display: flex; gap: 10px; align-items: stretch; margin: 8px 0; }
+.merge-col { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; }
+.merge-head { font-size: var(--fs-xs); color: var(--text-soft); padding-bottom: 4px; }
+.merge-text { flex: 1 1 auto; min-height: 46vh; font-family: var(--mono, monospace);
+  font-size: var(--fs-xs); white-space: pre-wrap; resize: vertical;
+  /* 中文会自己折行,但长串英文/网址不会:没有这两行,一列就把三栏顶破 */
+  overflow-wrap: anywhere; word-break: break-word; }
+
+/* 诊断台入口已在 2026-10-21 删除(连同 diag.html / diag.js),这段药丸样式一并移除。 */
+
+/* ---------- 14b. 窄窗补充(放末尾:前面的 .merge-text 主规则仍是第一个出现,别抢断言锚点) ---------- */
+@media (max-width: 1000px) {
+  .merge-cols { flex-wrap: wrap; }
+  .merge-cols > * { flex: 1 1 100%; }
+  .merge-cols .merge-text { min-height: 30vh; }
+  .editor-bar { flex-wrap: nowrap; overflow-x: auto; }
+  .editor-bar > * { flex: none; }
+}
+
+/* R27 知识顾问面板 */
+.know-out { margin: 10px 0; max-height: 44vh; overflow: auto; }
+.know-out h4 { margin: 10px 0 4px; font-size: var(--fs-sm); color: var(--text-soft); }
+.know-out ul { margin: 0; padding-left: 18px; }
+.know-out li { margin: 2px 0; line-height: 1.7; font-size: var(--fs-sm); }
+.know-topic { font-weight: 600; font-size: var(--fs-md, 15px); margin-bottom: 4px; }
+.know-concl { line-height: 1.85; margin: 0; }
+.know-list { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* 大纲复核表(第 96 轮交叉审查:类名写了但样式不存在,表格是裸的) */
+.align-table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 12.5px; }
+.align-table th, .align-table td { border-bottom: 1px solid var(--line, #e5e5e5); padding: 4px 6px;
+  text-align: left; vertical-align: top; }
+.align-table th { font-weight: 600; opacity: .78; white-space: nowrap; }
+.align-table td:nth-child(2) { white-space: nowrap; }
+.align-off td { background: rgba(200, 90, 60, .09); }        /* 偏离那几行给个淡底 */
+.know-meta { margin-top: 8px; opacity: .8; }
+
+/* ── 联动提示条(丙·固定工作流;作者 2026-10-20)─────────────────────────────
+   平时 hidden(零视觉成本),有提示才占一行。复用 pending-banner 那套「非阻塞、点了才动」范式:
+   一条链一个 chip,chip 里是「一句人话 + 主动作 + ×」。 */
+.chain-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 6px 12px; border-bottom: 1px solid var(--line-soft, var(--line));
+  background: var(--accent-tint, var(--surface));
+  /*2026-11-02（视觉集中检查）：条目多时整条被 nowrap 的 chip 撑爆（作者截图：
+  「设定集变了 5 处」提示条在宽屏拉得太长）。bar 允许换行、chip 限宽内省略。 */
+  max-width: 100%; overflow: hidden; }
+.chain-bar.hidden { display: none; }
+.chain-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px 3px 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  font-size: var(--fs-xs, 12px); color: var(--text);
+  max-width: 100%; min-width: 0; }
+.chain-chip .cc-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; max-width: 46em; }
+.chain-chip .cc-cost { color: var(--text-mute); }
+.chain-chip .cc-go { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-strong, var(--line));
+  background: var(--surface-raised, var(--surface)); color: var(--text); cursor: pointer;
+  font-size: var(--fs-xs, 12px); }
+.chain-chip .cc-go:hover { border-color: var(--accent); }
+.chain-chip .cc-go:disabled { opacity: .45; cursor: not-allowed; }
+.chain-chip .cc-x { border: 0; background: transparent; color: var(--text-mute); cursor: pointer;
+  font-size: var(--fs-xs, 12px); padding: 0 4px; line-height: 1; }
+.chain-chip .cc-x:hover { color: var(--text); }
+.chain-more { color: var(--text-mute); font-size: var(--fs-xs, 12px); }
+
+/* 「按用途分模型」默认折叠(2026-10-21 需求确认):标题右侧留一条明显的暗示,别让人以为那格没了 */
+.route-fold { margin-top: var(--space-3); border-top: 1px dashed var(--line); padding-top: var(--space-3); }
+.route-fold > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text-soft); }
+.route-fold > summary::-webkit-details-marker { display: none; }
+.route-fold > summary:hover { color: var(--text); }
+.route-fold .rf-badge { font-weight: 400; font-size: var(--fs-caption); color: var(--text-mute);
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.route-fold .rf-chev { margin-left: auto; color: var(--text-mute); transition: transform var(--dur-2) var(--ease-out); }
+.route-fold[open] .rf-chev { transform: rotate(90deg); }
+/* 通用「后台在干活」状态条:沿用 run-strip 的样子,+slow 表示不是织章、没有"停/展开" */
+.run-strip.slow { border-color: var(--line-strong); }
+.run-strip.slow .rs-label { font-weight: 600; }
+
+/* 六步浮窗(2026-10-21 重做):每棒一行 = 角色名 + 状态 + 耗时 + 字数 */
+.pills .pill { display: flex; align-items: center; gap: 8px; }
+.pills .pill .pi-name { flex: none; }
+.pills .pill .pi-meta { margin-left: auto; font-size: var(--fs-caption); color: var(--text-mute);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pills .pill.running .pi-meta { color: var(--accent, #d08a2a); }
+.pills .pill.done .pi-meta { color: var(--text-soft); }
+/*2026-11-03（作者五点反馈③，排布崩修复）：#agent-pills 同时挂着 .pills（横向
+  flex-wrap 工序带）与 .tl-list（竖向时间线）两个类——.pills 的 flex-wrap 把
+  每个竖向 .tl-step 排成两行错位。时间线容器显式改纵向列，宽度占满：
+  .tl-step 行内 head 用 flex 对齐（名左 meta 右），崩排根除。 */
+.tl-list { display: block; flex-wrap: nowrap; }
+.tl-list .tl-step { display: block; width: 100%; }
+.tl-list .tl-step .tl-head { width: 100%; }
+.tl-list .tl-step .pi-name { flex: 1 1 auto; min-width: 0; }
+.tl-list .tl-step .pi-meta { margin-left: auto; }
+
+/* 「另起一段对话」:智库角色对话底部那一行(2026-10-21),与领航员的样式一致,右对齐 */
+.pc-thread-row { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.pc-thread-row > .jc-btn { font-size: var(--fs-caption); }
+.pc-thread-row .pc-newthread { font-size: var(--fs-caption); }
+
+/* ── 六棒浮窗:竖向时间线(2026-10-21 需求确认重做) ─────────────────────
+   每棒一块:跑起来展开、事件挂它下面、跑完收起只留一行结论。
+   高度联动:卡片最大 92vh 且纵向 flex,时间线/实时稿/日志各自滚动,
+   底部按钮永远留在视口内,不会被内容挤出去。 */
+.run-overlay-card { max-height: 92vh; display: flex; flex-direction: column; }
+.run-overlay-card #agent-pills { flex: 0 1 auto; max-height: 44vh; overflow-y: auto; padding-right: 4px; }
+.run-overlay-card #run-stream { flex: 0 1 auto; max-height: 18vh; overflow-y: auto; }
+.run-overlay-card #run-log { flex: 0 1 auto; max-height: 14vh; overflow-y: auto; }
+.run-overlay-card .run-actions { flex: none; margin-top: auto; }
+
+.tl-step { border-left: 2px solid var(--line); padding: 2px 0 2px 10px; margin: 0 0 2px; position: relative; }
+.tl-step .tl-head { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 2px;
+  border-radius: var(--radius-xs); font-size: var(--fs-sm); color: var(--text-soft); }
+.tl-step .tl-head:hover { background: var(--bg-sunken); }
+.tl-step .tl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-mute); box-shadow: 0 0 0 2px var(--bg-sunken); }
+.tl-step.running { border-left-color: var(--accent, #d08a2a); }
+.tl-step.running .tl-dot { background: var(--accent, #d08a2a); animation: tlPulse 1.1s ease-in-out infinite; }
+.tl-step.done { border-left-color: var(--success, #4a9e5c); }
+.tl-step.done .tl-dot { background: var(--success, #4a9e5c); }
+.tl-step.running .pi-name { color: var(--text); font-weight: 600; }
+.tl-step.done .pi-name { color: var(--text-soft); }
+@keyframes tlPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* 事件区:默认收起(只留标题行),.open 才展开 */
+.tl-step .tl-body { display: none; margin: 2px 0 4px 4px; padding-left: 10px;
+  border-left: 1px dashed var(--line-strong); max-height: 18vh; overflow-y: auto; }
+.tl-step.open .tl-body { display: block; }
+.tl-step .tl-line { font-size: var(--fs-xs); color: var(--text-soft); line-height: 1.6; padding: 1px 0; }
+.tl-step .tl-line.ok, .tl-step .tl-line.tl-last { color: var(--text-soft); }
+.tl-step .tl-line.err { color: var(--danger, #b3261e); }
+.tl-step .tl-line.warn { color: var(--warn, #d08a2a); }
+
+/* 侧边栏每章展开的六棒进度(2026-10-21) */
+.ch-steps { margin: 4px 0 6px 10px; padding-left: 8px; border-left: 1px dashed var(--line-strong); }
+.ch-step { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: var(--fs-xs); color: var(--text-soft); }
+.ch-step .cs-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-mute); }
+.ch-step.done .cs-dot { background: var(--success, #4a9e5c); }
+.ch-step .cs-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-step.done .cs-name { color: var(--text-mute); }
+.ch-step .cs-meta { flex: none; color: var(--text-mute); font-variant-numeric: tabular-nums; }
+.ch-step .cs-go { flex: none; padding: 1px 6px; border-radius: var(--radius-xs); cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: inherit; font-size: var(--fs-caption); }
+.ch-step .cs-go:hover:not(:disabled) { border-color: var(--line-strong); }
+.ch-step .cs-go:disabled { opacity: .4; cursor: not-allowed; }
+.ch-step.blocked { opacity: .55; }
+.ch-step-warn { margin: 2px 0 6px; font-size: var(--fs-xs); color: var(--warn, #d08a2a); line-height: 1.5; }
+
+/* 正文顶栏两排(2026-10-21 需求确认):第一排"看/管这份文件",第二排"让 AI 干活"。
+   窄屏各自换行,不挤成一坨。 */
+.editor-actions { flex-direction: column; align-items: flex-end; gap: 6px; }
+.ea-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.ea-row-ai { padding-top: 2px; }
+/* 两排之间用一条极淡的分隔,眼睛能立刻分清"文件操作"和"AI 操作" */
+.ea-row-ai { border-top: 1px dashed var(--line); padding-top: 6px; }
+
+/* 正文顶栏(2026-10-21 二次调整):标题独占顶部居中;两排按钮靠左;横竖空隙收紧。 */
+.editor-head { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px var(--space-4) 8px; }
+.editor-head .path { text-align: center; justify-content: center; }
+.editor-actions { align-items: flex-start; gap: 4px; width: 100%; }
+.ea-row { gap: 4px; justify-content: flex-start; }
+.ea-row-ai { border-top: 1px dashed var(--line); padding-top: 4px; margin-top: 0; }
+/* 按钮本身收一档:顶栏是高频点击区,紧凑才不占地 */
+.editor-actions .ghost, .editor-actions .primary {
+  padding: 2px 8px; font-size: var(--fs-xs); line-height: 1.5; border-radius: var(--radius-xs);
+}
+.editor-actions .ghost .ico, .editor-actions .primary .ico { margin-right: 2px; }
+#pending-banner { flex: 1 1 100%; }
+
+/* 上一章偏短的提示(只有颜色,不挡住按钮 —— 2026-10-21 裁定乙:提示不拦) */
+.ch-step-hint { margin: 2px 0 6px; font-size: var(--fs-xs); color: var(--text-mute); line-height: 1.5; }
+
+/* ---------- 7k. 议事例会:上方横条 + 群聊式时间线(2026-10-25 需求确认) ----------
+   规则只有一条:一眼能看出「谁在说」。所以角色一律在左(头像+名字),
+   作者一律在右(淡墨晕底),正在吐字的淡显一半 —— 别让流式字看起来像已完成。 */
+.nav-strip.pn-strip-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pn-chip { display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 5px 2px 3px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); font-size: var(--fs-xs); color: var(--text-soft); }
+.pn-chip.on { border-color: var(--seal-line); background: var(--seal-tint); }
+.pn-chip .pn-ava, .pn-head .pn-ava { flex: none; width: 18px; height: 18px; border-radius: 50%;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+  background: var(--line-soft); }
+.pn-chip .pn-ava svg, .pn-chip .pn-ava img,
+.pn-head .pn-ava svg, .pn-head .pn-ava img { width: 100%; height: 100%; object-fit: cover; }
+.pn-chip-name { color: var(--text); white-space: nowrap; }
+.pn-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.pn-dot.queued { background: var(--text-mute); opacity: .55; }
+.pn-dot.running { background: var(--seal); animation: pn-pulse 1.1s ease-in-out infinite; }
+.pn-dot.done { background: var(--success); }
+.pn-dot.error { background: var(--danger); }
+@keyframes pn-pulse { 50% { opacity: .2; } }
+.pn-x { border: 0; background: transparent; color: var(--text-mute); cursor: pointer;
+  font-size: var(--fs-xs); line-height: 1; padding: 0 2px; }
+.pn-x:hover:not(:disabled) { color: var(--danger); }
+.pn-x:disabled { opacity: .3; cursor: default; }
+.pn-queue { font-size: var(--fs-xs); color: var(--text-mute); margin-left: 2px; }
+.pn-hint { font-size: var(--fs-xs); color: var(--text-mute); }
+
+.pn-row { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; max-width: 88%; }
+.pn-head { display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--text-mute); }
+.pn-name { color: var(--text-soft); }
+.pn-bubble { padding: 7px 11px; border-radius: var(--radius-md); line-height: 1.55;
+  font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word;
+  background: var(--surface); border: 1px solid var(--line); }
+.pn-row.pn-live .pn-bubble { opacity: .7; }
+.pn-row.pn-who-host .pn-bubble { border-color: var(--seal-line); background: var(--surface-raised); }
+.pn-divider { align-self: center; text-align: center; font-size: var(--fs-xs);
+  color: var(--text-mute); border-top: 1px dashed var(--line);
+  padding-top: 6px; margin-top: 2px; width: 100%; }
+.pn-divider small { display: block; margin-top: 2px; opacity: .85; line-height: 1.5; }
+
+/* 设置里「并发上限」一格(2026-10-25):和槽表同属"偏好",所以并排放,不单独占一大块 */
+.conc-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  margin: 2px 0 var(--space-2); }
+.conc-row .field-label { margin: 0; }
+.conc-row select { flex: none; min-width: 190px; }
+.conc-hint { margin: 0; }
+
+/*2026-10-28 复核第6 条：水墨头像 PNG 自带近白底，深色侧栏上像贴了两枚白圆。
+ 用 filter 压亮度、不动图片本身；线稿在暗底上反而更清楚。 */
+[data-theme="dark"] .role-av { filter: brightness(.82) contrast(1.05); }

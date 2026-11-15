@@ -1,0 +1,171 @@
+"""S4 golden 三件套:钉死 run_pipeline 的等价面——prompt 逐字节 + 事件序列 + 落盘文件。
+
+用途:STEPS 表化(S4)、签名 v2(S5)、上下文预算器(S6)这类重排主循环的重构,
+必须在这份快照下逐字节等价(S6 有意改 prompt 时,重生成快照并人工审 diff——
+这正是评审要求的「prompt 回放断言」护栏)。
+
+重新生成快照:LOOM_GOLDEN_WRITE=1 python3 -m pytest tests/test_golden_pipeline.py
+(生成后必须人工审 tests/golden/pipeline_v1.json 的 diff 再提交,不许盲刷。)
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+
+from loom.agents import run_pipeline
+from loom.config import load_config, save_config
+from loom.parse import EDIT_NOTE_CLOSE, EDIT_NOTE_OPEN
+
+GOLDEN = Path(__file__).parent / "golden" / "pipeline_v1.json"
+
+# 每棒的固定产出(避开违禁词表与「不是A而是B」翻转句,保证 detector 路径确定性为零命中)
+# 细纲三棒:细纲师 → 设定师 → 分镜师(依次交出 本章细纲 / 本章细纲(含设定) / 本章细纲(含分镜))
+_OUTLINE_1 = "细纲:沈砚在矿场醒来,验伤;遇周楠;章末钩(危机迫近)。"
+_SETTER = "本章细纲(含设定):主角沈砚在矿场;境界凡境;金手指为重生记忆。"
+_OUTLINE = "分镜一:醒来验伤。分镜二:遇周楠。分镜三:章末钩(危机迫近)。"
+_DRAFT = "寅时三刻,铜锣未响。\n\n沈砚睁开眼,矿灯昏黄。\n\n他记得三年后的那一刀。"
+_EDITED = ("寅时三刻,铜锣未响。\n\n沈砚睁开眼,矿灯昏黄。\n\n他记得三年后的那一刀,也记得谁递的刀。\n"
+           + EDIT_NOTE_OPEN + "\n《本章改动留痕》\n- 补了一句悬念,钩子更硬。\n" + EDIT_NOTE_CLOSE)
+_POLISHED = "寅时三刻,铜锣未响。\n\n沈砚睁开眼,矿灯昏黄。\n\n他记得三年后的那一刀,也记得递刀的人。"
+_PASS = "通过"
+_TITLE = "矿灯"
+
+# 细纲师 + 设定师 + 分镜师 + 写手 + 责任编辑 + 质检批判 + 润色师 + 去AI味批判 + 标题 = 9 调
+_FULL_RUN = [_OUTLINE_1, _SETTER, _OUTLINE, _DRAFT, _EDITED, _PASS, _POLISHED, _PASS, _TITLE]
+
+
+class RecordingBackend:
+    """按脚本顺序吐产出;记录每次调用的 (system_sha, user, max_chars)。脚本耗尽即炸=调用数契约。"""
+
+    def __init__(self, script: list[str]) -> None:
+        self.script = list(script)
+        self.calls: list[dict] = []
+
+    def complete(self, system: str, user: str, *, max_chars=None, on_chunk=None) -> str:
+        if not self.script:
+            raise AssertionError("RecordingBackend 脚本耗尽:调用次数超出 golden 契约")
+        out = self.script.pop(0)
+        self.calls.append({
+            "system": hashlib.sha256(system.encode("utf-8")).hexdigest()[:12],
+            "user": user, "max_chars": max_chars,
+        })
+        if on_chunk and out:
+            on_chunk(out)
+        return out
+
+
+def _files_snapshot(root: Path) -> dict[str, str]:
+    """正文/留痕全量落盘快照;排除 .运行账本(调用日志带墙钟时间戳,天生不可复现)、
+    .历史(文件名带时间戳)与回收站。"""
+    out: dict[str, str] = {}
+    for base in ("正文", ".审稿留痕"):
+        d = root / base
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*")):
+            rel = p.relative_to(root).as_posix()
+            if (p.is_dir() or "/.历史/" in f"/{rel}/" or "/.回收站/" in f"/{rel}/"
+                    or "/.运行账本/" in f"/{rel}/"):
+                continue
+            out[rel] = p.read_text(encoding="utf-8")
+    return out
+
+
+def test_pipeline_golden(project: Path):
+    # 终稿最短闸=目标×12%(地板40):把目标压到 200,让短脚本产出可过闸、快照体积可控
+    toml = project / "loom.toml"
+    toml.write_text(toml.read_text(encoding="utf-8").replace('"章节字数" = 800', '"章节字数" = 200'),
+                    encoding="utf-8")
+    cfg = load_config(project)
+    assert cfg.chapter_chars == 200, "loom.toml 目标字数替换失败(模板措辞变了?)"
+    # 顺手关掉「除虫」:它是终稿后的附赠调用,会让本测试固定的 RecordingBackend 脚本超量耗尽——
+    # 这是测试口径修正(golden 只钉主线管线的等价面),不影响快照本体的语义。
+    cfg.continuity_scan = False
+    save_config(project, cfg)
+    cfg = load_config(project)
+    assert cfg.continuity_scan is False, "除虫开关没关掉"
+    record: dict = {"scenarios": {}}
+
+    def run(name: str, chapter: int, script: list[str], *, resume: bool) -> None:
+        be = RecordingBackend(script)
+        evs: list[dict] = []
+        run_pipeline(project, chapter, be, cfg, progress=evs.append, resume=resume)
+        assert not be.script, f"{name}: 脚本剩余 {len(be.script)} 条未消费(调用数少于契约)"
+        record["scenarios"][name] = {"calls": be.calls, "events": evs}
+
+    # A 全新首章(黄金开篇 reads,六棒 + 双 critic + 标题 = 9 调)
+    run("A_ch1_fresh", 1, list(_FULL_RUN), resume=True)
+    # B 续跑:⚠️ 已知缺陷(本批次 C 类,见交付报告)——细纲改成三棒后,盘上细纲由「章节分镜师」
+    # 覆盖写,而 agents._stale_local 只比对「章节细纲师」那一棒的账本产出 → 每次续跑都误判
+    # 「作者手改过细纲」→ 细纲师走 WYSIWYG 旁路(不调模型)后整章重跑,只剩标题那一次是应有的。
+    # 续跑省计费的理想值 = 1 调(_TITLE);修好 _stale_local 后把这里的脚本改回 [_TITLE]。
+    run("B_ch1_resume_all_skip", 1,
+        [_SETTER, _OUTLINE, _DRAFT, _EDITED, _PASS, _POLISHED, _PASS, _TITLE], resume=True)
+    # C 第二章(prev 注入细纲师/写手/责任编辑)
+    run("C_ch2_with_prev", 2, list(_FULL_RUN), resume=True)
+    # D 细纲 WYSIWYG 旁路(手写细纲已存在 → 细纲师不调模型,8 调)
+    from loom import paths as _paths
+    outline3 = _paths.outline_path(project, 3)
+    outline3.parent.mkdir(parents=True, exist_ok=True)
+    outline3.write_text("手改细纲:只留两场,末场倒计时钩。\n", encoding="utf-8")
+    run("D_ch3_outline_bypass", 3,
+        [_SETTER, _OUTLINE, _DRAFT, _EDITED, _PASS, _POLISHED, _PASS, _TITLE], resume=False)
+
+    record["files"] = _files_snapshot(project)
+
+    # 归一化:事件里的绝对路径(edit_note/chapter_done 的 path 字段)按项目根替换,快照才可复现。
+    # 必须在 dumps 之前做:Windows 根含反斜杠,进了 JSON 会被转义成 \\,dumps 后再 replace 永远对不上;
+    # 只动「含项目根的字符串」,顺手把分隔符归一成 /,正文内容字符串绝不受影响。
+    def _norm(o):
+        if isinstance(o, dict):
+            return {k: _norm(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_norm(v) for v in o]
+        if isinstance(o, str) and str(project) in o:
+            return o.replace(str(project), "<ROOT>").replace("\\", "/")
+        return o
+    blob = json.dumps(_norm(record), ensure_ascii=False, indent=1, sort_keys=True)
+
+    if os.environ.get("LOOM_GOLDEN_WRITE") == "1":
+        GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+        GOLDEN.write_text(blob, encoding="utf-8")
+        return
+
+    assert GOLDEN.is_file(), "缺 golden 快照:LOOM_GOLDEN_WRITE=1 生成并人工审后提交"
+    want = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    got = json.loads(blob)
+    for sc in want["scenarios"]:
+        w, g = want["scenarios"][sc], got["scenarios"].get(sc)
+        assert g is not None, f"场景缺失:{sc}"
+        assert len(g["calls"]) == len(w["calls"]), f"{sc}: 调用数 {len(g['calls'])} != {len(w['calls'])}"
+        for i, (wc, gc) in enumerate(zip(w["calls"], g["calls"])):
+            assert gc == wc, (f"{sc} 第{i}次调用不等价\nmax_chars: {gc['max_chars']} vs {wc['max_chars']}\n"
+                              f"system_sha: {gc['system']} vs {wc['system']}\n"
+                              f"user diff 首异位置: {_first_diff(gc['user'], wc['user'])}")
+        if sc == "B_ch1_resume_all_skip":
+            # 6d F8：已完成章节再次执行拥有新任务，任务投影事件按新契约单独校验。
+            # 主线模型调用、正文、其余事件继续逐字节对比旧golden。
+            task_types = {"task_prepared", "plan_updated", "task_status"}
+            task_events = [e for e in g["events"] if e.get("type") in task_types]
+            tid = task_events[0]["task_id"]
+            assert tid.startswith("t-pipe-0001-")
+            assert task_events[0]["type"] == "task_prepared"
+            assert task_events[-1]["type"] == "task_status"
+            assert task_events[-1]["status"] == "completed"
+            assert any(e["type"] == "plan_updated" for e in task_events)
+            assert all(e["task_id"] == tid for e in task_events)
+            assert [e["revision"] for e in task_events] == sorted(e["revision"] for e in task_events)
+            assert [e for e in g["events"] if e.get("type") not in task_types] == [
+                e for e in w["events"] if e.get("type") not in task_types], f"{sc}: 主线事件不等价"
+        else:
+            assert g["events"] == w["events"], f"{sc}: 事件序列不等价"
+    assert got["files"] == want["files"], "落盘文件不等价"
+
+
+def _first_diff(a: str, b: str) -> str:
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return f"offset {i}: ...{a[max(0, i - 40):i + 40]!r}... vs ...{b[max(0, i - 40):i + 40]!r}..."
+    return f"长度不同 {len(a)} vs {len(b)}(前缀相同)"

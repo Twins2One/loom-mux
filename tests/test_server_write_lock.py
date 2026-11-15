@@ -1,0 +1,73 @@
+"""落盘端点互斥:同一本书 write 在跑时,再点 write/learn 直接 409「正在写作中」;跑完锁释放。
+本文件验证同进程端点互斥；跨进程边界由独立专项验证。"""
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from conftest import require_http_transport  # noqa: E402
+
+require_http_transport()   # starlette TestClient 依赖 httpx(随 openai 一起装)
+from starlette.testclient import TestClient  # noqa: E402
+
+import loom.server as server  # noqa: E402
+import loom.usecases as usecases  # noqa: E402
+
+
+def test_write_mutex_blocks_concurrent_write_and_learn(project, monkeypatch):
+    started, release = threading.Event(), threading.Event()
+
+    def fake_pipeline(root, chapter_n, backend, cfg, progress, **kw):
+        started.set()
+        assert release.wait(5), "测试超时:主线程没放行"
+        progress({"type": "chapter_done", "chapter": chapter_n})
+        return root, "x"
+
+    # 编排(锁 + pipeline 调用)已下沉 usecases;server 只在 learn 端点建后端 → 两处都补桩
+    monkeypatch.setattr(usecases, "run_pipeline", fake_pipeline)
+    monkeypatch.setattr(usecases, "get_backend", lambda cfg: object())
+    monkeypatch.setattr(usecases, "cheap_backend", lambda cfg: None)
+    from loom import routes
+    monkeypatch.setattr(routes, "get_backend_for", lambda *args, **kwargs: object())
+    monkeypatch.setattr(server, "get_backend", lambda cfg: object())
+    monkeypatch.setattr(server, "cheap_backend", lambda cfg: None)
+
+    # 预置一章 Loom 快照 → 门禁豁免,专测并发锁(body 改写第2章)
+    from loom import ledger, paths as _paths
+    c1 = _paths.chapter_path(project, 1); c1.parent.mkdir(parents=True, exist_ok=True)
+    c1.write_text("# 第1章\n\nx\n", encoding="utf-8")
+    snap1 = _paths.snapshot_path(project, 1); snap1.parent.mkdir(parents=True, exist_ok=True)
+    snap1.write_text(c1.read_text(encoding="utf-8"), encoding="utf-8")   # .原稿 快照(_has_loom_chapter 判据)
+    ledger.record_snapshot(project, 1, c1.read_text(encoding="utf-8"))
+
+    body = {"root": str(project), "chapter": 2}
+    first: dict = {}
+
+    def run_first():
+        with TestClient(server.app, base_url="http://127.0.0.1") as c:
+            first["resp"] = c.post("/api/write", json=body)
+
+    t = threading.Thread(target=run_first)
+    t.start()
+    try:
+        assert started.wait(5), f"write worker 没启动: {getattr(first.get('resp'), 'text', '响应尚未返回')}"
+
+        # 第一次 write 还在跑:再点 write / learn 都被 409 挡住
+        client = TestClient(server.app, base_url="http://127.0.0.1")
+        r2 = client.post("/api/write", json=body)
+        assert r2.status_code == 409
+        assert "正在写作中" in r2.json()["error"]
+        r3 = client.post("/api/learn", json=body)
+        assert r3.status_code == 409
+    finally:
+        release.set()
+        t.join(5)
+
+    assert first["resp"].status_code == 200
+    assert "chapter_done" in first["resp"].text
+
+    # 跑完锁已释放:learn 不再被 409 挡(本例缺原稿快照 → 业务 400,不是 project_busy)
+    client = TestClient(server.app, base_url="http://127.0.0.1")
+    r4 = client.post("/api/learn", json=body)
+    assert r4.status_code != 409

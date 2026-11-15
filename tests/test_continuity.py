@@ -1,0 +1,629 @@
+"""连续性除虫:确定性双检测(零 LLM)+ LLM 扫描(Task 4 补)。守只报告不改稿。"""
+import re
+
+from loom import statebook
+from loom.continuity import BugItem, detect_consumed_reuse, detect_rule_drift, merge_items,     detect_time_mismatch, detect_char_continuity
+
+
+def _book():
+    return {2: [("物品", "远古药胚:已吞服消耗(冲刷绝脉) | 证据:「吞入腹中」"),
+                ("物品", "铁剑:获得 | 证据:「拾起」"),
+                ("规则", "因果锁定:满100%触发,100%反馈修行成果 | 证据:「锁定」")]}
+
+
+def test_consumed_reuse_hit():
+    body = "江澈取出远古药胚,以其伴生精血炼成破禁丹。"
+    items = detect_consumed_reuse(_book(), 4, body)
+    assert len(items) == 1 and items[0].kind == "物品" and items[0].stars == 5
+    assert "远古药胚" in items[0].desc and "第2章" in items[0].prior
+    assert items[0].evidence and "远古药胚" in items[0].evidence   # 证据=正文所在句
+
+
+def test_consumed_reuse_ignores_unconsumed_and_absent():
+    assert detect_consumed_reuse(_book(), 4, "他握紧铁剑。") == []        # 获得类不报
+    assert detect_consumed_reuse(_book(), 4, "他两手空空。") == []        # 没出现不报
+    assert detect_consumed_reuse(_book(), 2, "远古药胚仍在。") == []      # 只查前章账本(m<n)
+
+
+def test_consumed_reuse_ignores_keyword_in_evidence_quote():
+    # 变更描述段是「获得」(未消耗),证据引文里的「耗尽」不该误判为消耗类
+    book = {2: [("物品", "铁剑:获得 | 证据:「他耗尽力气拾起铁剑」")]}
+    assert detect_consumed_reuse(book, 4, "他挥舞铁剑。") == []
+
+
+def test_rule_drift_hit():
+    body = "系统提示:因果锁定触发,未来每突破一个大境界,自动反馈10%修为。"
+    items = detect_rule_drift(_book(), 4, body)
+    assert len(items) == 1 and items[0].kind == "规则" and "10%" in items[0].evidence
+    assert "100%" in items[0].prior
+
+
+def test_rule_drift_same_number_silent():
+    assert detect_rule_drift(_book(), 4, "因果锁定:100%反馈,一如既往。") == []
+
+
+def test_merge_dedup_prefers_deterministic():
+    a = BugItem(5, "物品", "det 版", evidence="远古药胚句")
+    b = BugItem(3, "物品", "llm 版", evidence="远古药胚句")
+    c = BugItem(2, "时间", "独有", evidence="昨日")
+    out = merge_items([a], [b, c])
+    assert out[0].desc == "det 版" and len(out) == 2
+
+
+
+
+# ── G1: 时间连续性检测 ────────
+
+def _time_book():
+    return {1: [('时钟', '当夜深夜:深夜突破至炼气三层 | 证据:xxx')],
+            2: [('时钟', '翌日清晨:离开宗门前往遗迹 | 证据:xxx')],
+            3: [('物品', '玉佩:已破碎 | 证据:坠落')]}
+
+
+def test_time_mismatch_no_clock_skip():
+    """第一章无前情时钟,应跳过不报。"""
+    items = detect_time_mismatch(_time_book(), 1, '当日,他起得很早。')
+    assert items == []
+
+
+def test_time_mismatch_time_flow_forward():
+    """前章翌日清晨,本章当夜 → 合理(同一天不同时段)"""
+    items = detect_time_mismatch(_time_book(), 3, '当夜,月色如洗。')
+    assert items == []
+
+
+def test_time_mismatch_time_reverse():
+    """前章翌日清晨,本章昨日 → 矛盾(倒流)"""
+    items = detect_time_mismatch(_time_book(), 3, '昨夜之事他已不再计较。')
+    assert len(items) == 1 and '倒流' in items[0].desc
+
+
+def test_time_mismatch_no_timeword():
+    """本章开头没时间词 → 跳过"""
+    items = detect_time_mismatch(_time_book(), 3, '他推开窗户,外面正在下雨。')
+    assert items == []
+
+
+def test_time_mismatch_three_days_after_then_next_day():
+    """前章三日后,本章次日 → 倒流矛盾"""
+    book = {1: [('时钟', '三日后:抵达遗迹 | 证据:跋涉')]}
+    items = detect_time_mismatch(book, 2, '次日,他们开始挖掘。')
+    assert len(items) == 1 and items[0].stars == 4
+
+
+# ── G1: 人物出场关联检测 ────────
+
+def _char_book():
+    return {1: [('状态', '江澈:炼气巅峰 | 证据:入定'),
+                ('状态', '苏清瑶:闭关冲击金丹 | 证据:闭生死关')],
+            2: [('状态', '江澈:炼气巅峰(无重伤) | 证据:完好')]}
+
+
+def test_char_continuity_no_special_state():
+    """角色无特殊状态,正常出场不报"""
+    items = detect_char_continuity(_char_book(), 3, '江澈推开院门。', {'江澈', '苏清瑶', '陈墨'})
+    assert items == []
+
+
+def test_char_continuity_special_state_unresolved():
+    """角色前情特殊状态(闭关),本章出现但未交代变化"""
+    items = detect_char_continuity(_char_book(), 3, '苏清瑶从丹房走出,面色如常。', {'江澈', '苏清瑶'})
+    assert len(items) == 1 and '闭关' in items[0].desc
+
+
+def test_char_continuity_alias():
+    """角色以简称出现,前情有特殊状态"""
+    items = detect_char_continuity(_char_book(), 3, '清瑶的丹炉已冷却多日。', {'江澈', '苏清瑶'})
+    assert len(items) == 1 and 'alias' in items[0].desc or '简称' in items[0].desc
+    
+
+def test_char_continuity_other_char_not_in_book():
+    """角色不在账本里 → 跳过"""
+    items = detect_char_continuity(_char_book(), 3, '陈墨扛着剑走来。', {'江澈', '苏清瑶'})
+    assert items == []
+
+def test_parse_scan_two_segments():
+    from loom.continuity import parse_scan
+    raw = ("===除虫报告===\n"
+           "- ⭐⭐⭐⭐⭐ | 物品 | 药胚复活 | 本章证据:「取出药胚」 | 前情证据:第2章「吞入腹中」 | 落点:正文 | 修改示例:改为本源精血\n"
+           "===状态入账===\n"
+           "- [物品] 破禁丹:炼成并交予苏清瑶 | 证据:「递出破禁丹」\n"
+           "- 无效行不解析\n")
+    items, lines = parse_scan(raw)
+    assert len(items) == 1 and items[0].stars == 5 and items[0].kind == "物品"
+    assert items[0].fix == "改为本源精血" and items[0].target == "正文"
+    assert lines == ["- [物品] 破禁丹:炼成并交予苏清瑶 | 证据:「递出破禁丹」"]
+
+
+def test_parse_scan_pass_verdict():
+    from loom.continuity import parse_scan
+    items, lines = parse_scan("===除虫报告===\n通过\n===状态入账===\n- 无\n")
+    assert items == [] and lines == []
+
+
+def test_scan_chapter_end_to_end(project):
+    from conftest import FakeBackend, const
+    from loom.continuity import scan_chapter
+    from loom.paths import STATEBOOK_REL
+    statebook.append_section(project, 2, ["- [物品] 远古药胚:已吞服消耗 | 证据:「吞入腹中」"])
+    body = "江澈取出远古药胚,炼成破禁丹。\n\n他望向窗外。"
+    be = FakeBackend(const("===除虫报告===\n通过\n===状态入账===\n- [物品] 破禁丹:炼成 | 证据:「炼成破禁丹」"))
+    rep = scan_chapter(project, 4, body, be, hardfacts="【硬设定】测试块")
+    # LLM 说通过,但确定性检测抓到药胚复活 → 合流后仍有 1 条
+    assert len(rep["issues"]) == 1 and rep["issues"][0]["类别"] == "物品"
+    # 入账 write-once 落盘
+    assert "破禁丹" in (project / STATEBOOK_REL).read_text(encoding="utf-8")
+    assert rep["ledger_written"] is True
+    # 留痕落盘
+    note = (project / ".审稿留痕/第4章.md").read_text(encoding="utf-8")
+    assert "除虫报告" in note and "远古药胚" in note
+    # prompt 组装:账本快照/硬设定/本章正文都在
+    _, user = be.calls[0]
+    assert "远古药胚" in user and "【硬设定】测试块" in user and "破禁丹" in user
+
+
+def test_scan_chapter_llm_failure_still_reports_deterministic(project):
+    from loom.continuity import scan_chapter
+    statebook.append_section(project, 2, ["- [物品] 远古药胚:已吞服消耗 | 证据:「吞」"])
+
+    class Boom:
+        def complete(self, *a, **k):
+            raise RuntimeError("网络炸了")
+
+    rep = scan_chapter(project, 4, "取出远古药胚。", Boom())
+    assert len(rep["issues"]) == 1     # LLM 挂了,确定性结果照出,绝不整体失败
+
+
+def test_note_report_idempotent_rescan(project):
+    from conftest import FakeBackend, const
+    from loom.continuity import scan_chapter
+    # 预置一个别的留痕小节:重扫绝不能动它
+    note = project / ".审稿留痕/第4章.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("## 篇幅提醒(非阻断,供你定夺)\n- 本章超长\n", encoding="utf-8")
+    statebook.append_section(project, 2, ["- [物品] 药胚:已吞服消耗 | 证据:「吞」"])
+    be = FakeBackend(const("===除虫报告===\n通过\n===状态入账===\n- 无"))
+    scan_chapter(project, 4, "取出药胚。", be)
+    scan_chapter(project, 4, "取出药胚。", be)          # 重扫
+    text = note.read_text(encoding="utf-8")
+    assert text.count("## 除虫报告") == 1               # 替换不堆积
+    assert "## 篇幅提醒" in text and "本章超长" in text  # 别的小节原样
+
+
+def test_scan_chapter_rescan_ledger_not_overwritten(project):
+    """重扫已入账的章:write-once 不覆盖,ledger_written 明示 False(供 webui 提示用户手动合并)。"""
+    from conftest import FakeBackend, const
+    from loom.continuity import scan_chapter
+    be = FakeBackend(const("===除虫报告===\n通过\n===状态入账===\n- [物品] 铁剑:获得 | 证据:「拾起铁剑」"))
+    rep1 = scan_chapter(project, 4, "他拾起铁剑。", be)
+    assert rep1["ledger_written"] is True
+    rep2 = scan_chapter(project, 4, "他拾起铁剑。", be)          # 重扫同一章
+    assert rep2["state_lines"] and rep2["ledger_written"] is False
+
+
+class ScriptBackend:
+    """测试用后端:固定脚本响应,记录调用。"""
+    def __init__(self, script): self.script = list(script); self.calls = []
+    def complete(self, system, user, *, max_chars=None, on_chunk=None):
+        assert self.script, "脚本耗尽"
+        out = self.script.pop(0); self.calls.append((system, user))
+        if on_chunk and out: on_chunk(out)
+        return out
+
+
+def test_pipeline_auto_scan_and_state_block(project):
+    """终稿后自动除虫(事件+留痕+入账);第二章的写手 prompt 收到「当前状态」块;开关可关。"""
+    from loom.agents import run_pipeline
+    from loom.config import load_config, save_config
+    from loom.parse import EDIT_NOTE_CLOSE, EDIT_NOTE_OPEN
+
+    _PROSE = ("寅时三刻,铜锣未响。崇祯睁开眼,乾清宫的帐顶陈旧而熟悉。"
+              "他记得煤山那棵歪脖子树,也记得魏忠贤的笑。这一次他要先出手。")
+    # 六棒(细纲师/设定师/分镜师/写手/责任编辑/润色师)+ 标题 + 除虫扫描 = 8 次调用
+    full = ["锚点:崇祯睁眼,阉党当政。",              # 章节细纲师
+            "分镜一:验身。分镜二:召对。",              # 章节设定师
+            _PROSE,                                  # 章节分镜师
+            _PROSE,                                  # 写手
+            _PROSE + EDIT_NOTE_OPEN + "\n《本章改动留痕》\n- 补了一句。\n" + EDIT_NOTE_CLOSE,  # 责任编辑
+            _PROSE + "收束。",                        # 润色师
+            "煤山",                                   # 起标题
+            # 第 8 个响应给除虫扫描(终稿后附赠调用)
+            "===除虫报告===\n通过\n===状态入账===\n- [物品] 尚方剑:获得 | 证据:「取剑」"]
+
+    cfg = load_config(project)
+    cfg.gate_rounds = 0
+    cfg.chapter_chars = 100
+    save_config(project, cfg)
+    cfg = load_config(project)
+    assert cfg.continuity_scan is True        # 默认开
+
+    seen: list[dict] = []
+    run_pipeline(project, 1, ScriptBackend(list(full)), cfg, progress=seen.append)
+    assert any(e["type"] == "debug_report" for e in seen)
+    assert "尚方剑" in (project / "外置大脑/状态账本.md").read_text(encoding="utf-8")
+    assert "除虫报告" in (project / ".审稿留痕/第1章.md").read_text(encoding="utf-8")
+
+    # 第二章:写手 prompt 带「当前状态」块(账本已有第1章)
+    be2 = ScriptBackend(list(full))
+    run_pipeline(project, 2, be2, cfg)
+    writer_user = be2.calls[3][1]             # 细纲师/设定师/分镜师/写手 → 第4次
+    assert "当前状态" in writer_user and "尚方剑" in writer_user
+    assert "当前状态" not in be2.calls[1][1]  # 设定师不吃状态块(wants_hardfacts 只吃硬设定)
+
+    # 关掉开关:不再有除虫调用(脚本 7 个恰好耗尽)+ 无 debug_report
+    cfg.continuity_scan = False
+    save_config(project, cfg)
+    assert "除虫" in (project / "loom.toml").read_text(encoding="utf-8")
+    cfg = load_config(project)
+    assert cfg.continuity_scan is False
+    seen3: list[dict] = []
+    run_pipeline(project, 3, ScriptBackend(list(full[:7])), cfg, progress=seen3.append)
+    assert not any(e["type"] == "debug_report" for e in seen3)
+
+
+def test_regen_outline_gets_state_block(project):
+    """重生成细纲:细纲三棒里吃「当前状态」块的是首棒细纲师(wants_state)——防细纲让已消耗物品复活。"""
+    from loom.agents import regen_outline
+    from loom.config import load_config, save_config
+    from loom import statebook
+    statebook.append_section(project, 1, ["- [物品] 远古药胚:已吞服消耗 | 证据:「吞入腹中」"])
+    cfg = load_config(project)
+    cfg.gate_rounds = 0
+    save_config(project, cfg)
+    be = ScriptBackend(["锚点:接第1章,阉党反扑。", "分镜一:朝会。分镜二:遇刺。章末钩(危机迫近)。",
+                        "分镜一:朝会(约60字)。分镜二:遇刺(约60字)。章末钩(危机迫近)。"])
+    regen_outline(project, 2, be, load_config(project))
+    assert len(be.calls) == 3
+    outliner_user, setter_user, shooter_user = be.calls[0][1], be.calls[1][1], be.calls[2][1]
+    assert "当前状态" in outliner_user and "远古药胚" in outliner_user   # 细纲师吃到
+    assert "当前状态" not in setter_user            # 设定师不吃(非 wants_state)
+    assert "当前状态" not in shooter_user           # 分镜师也不吃
+
+
+def test_debug_endpoint_and_studio_tab(project, monkeypatch):
+    from fastapi.testclient import TestClient
+    from conftest import FakeBackend, const
+    from loom import server as srv, usecases
+    from loom.fsutil import atomic_write_text
+
+    atomic_write_text(project / "正文/第1章.md", "# 第1章\n\n江澈取出尚方剑。")
+    be = FakeBackend(const("===除虫报告===\n通过\n===状态入账===\n- [物品] 尚方剑:获得 | 证据:「取出尚方剑」"))
+    monkeypatch.setattr(usecases, "get_backend", lambda cfg: be)
+    monkeypatch.setattr(usecases, "cheap_backend", lambda cfg: None)
+    c = TestClient(srv.app, base_url="http://127.0.0.1")
+    r = c.post("/api/chapter/debug", json={"root": str(project), "chapter": 1})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["issues"] == [] and r.json()["state_lines"]
+
+    st = c.get(f"/api/studio?root={project}").json()
+    assert st["statebook"] and st["statebook"][0]["n"] == 1
+    assert st["statebook"][0]["lines"][0]["kind"] == "物品"
+
+    # 章不存在 → 400
+    r2 = c.post("/api/chapter/debug", json={"root": str(project), "chapter": 99})
+    assert r2.status_code == 400
+
+
+def test_gate_critic_receives_statebook_content(project):
+    """质检 gate 的复审 knowledge 里必须含账本内容(paths.STATEBOOK_REL 在 _GATES["编辑"] reads 清单里)。
+    防这份清单被误删而不红:写一条真实账本行,gate_rounds=1 跑一遍,断言 critic 收到的 user 含该行。"""
+    from loom import gates
+    from loom.agents import run_pipeline
+    from loom.config import load_config, save_config
+
+    statebook.append_section(project, 1, ["- [物品] 苍云剑:获得 | 证据:「拾起苍云剑」"])
+
+    _PROSE = ("寅时三刻,铜锣未响。崇祯睁开眼,乾清宫的帐顶陈旧而熟悉。"
+              "他记得煤山那棵歪脖子树,也记得魏忠贤的笑。这一次他要先出手。")
+
+    def responder(system, user):
+        if system == gates.CRITIC_质检 or system == gates.CRITIC_去AI味:
+            return "通过"   # 无硬伤,gate 一轮即过,不触发回炉
+        return _PROSE
+
+    from conftest import FakeBackend
+    be = FakeBackend(responder)
+    cfg = load_config(project)
+    cfg.gate_rounds = 1
+    cfg.chapter_chars = 100
+    save_config(project, cfg)
+    cfg = load_config(project)
+
+    run_pipeline(project, 2, be, cfg)
+
+    critic_calls = [u for s, u in be.calls if s == gates.CRITIC_质检]
+    assert critic_calls, "质检 critic 未被调用——gate_rounds=1 应触发一轮复审"
+    assert any("苍云剑" in u for u in critic_calls)
+
+
+def test_statebook_listed_in_state(project):
+    # scaffold 自带账本模板 → OPTIONAL_BRAIN 命中即列(与 立项卡/文风参考 同款语义)
+    from loom.usecases import project_state
+    state = project_state(project)
+    rels = []
+    for b in state["brain"]:
+        if "rel" in b:
+            rels.append(b["rel"])
+        elif "children" in b:
+            rels.extend(c["rel"] for c in b["children"])
+    assert "外置大脑/状态账本.md" in rels
+
+# ── G3: 别名/简称模糊匹配 ────────
+
+def test_consumed_reuse_fuzzy_normalize():
+    """归一化匹配:带空格的消耗实体"""
+    book = {1: [('物品', '远古 药胚:已吞服消耗 | 证据:吞下')]}
+    items = detect_consumed_reuse(book, 2, '远古药胚已炼化。')
+    assert len(items) == 1
+
+
+def test_consumed_reuse_fuzzy_dot_part():
+    """·尾名匹配:仙阶金丹·高品质 → 匹配高品质"""
+    book = {1: [('物品', '仙阶金丹·高品质:耗尽 | 证据:用尽')]}
+    items = detect_consumed_reuse(book, 2, '高品质的丹药所剩无几。')
+    assert len(items) == 1
+
+
+def test_consumed_reuse_fuzzy_core():
+    """去前缀匹配(>4字):上古炼体药胚 → 炼体药胚"""
+    book = {1: [('物品', '上古炼体药胚:已耗尽 | 证据:用尽')]}
+    items = detect_consumed_reuse(book, 2, '炼体药胚的药力已经散尽。')
+    assert len(items) == 1
+
+
+def test_consumed_reuse_short_entity_no_fuzzy():
+    """短实体(2字)不做去前缀模糊,避免误报"""
+    book = {1: [('物品', '药胚:已耗尽 | 证据:用尽')]}
+    items = detect_consumed_reuse(book, 2, '药渣堆了一地。')
+    assert items == []  # 药渣 ≠ 药胚,且短实体不触发 fuzzy
+
+
+def test_char_continuity_alias_surname_only():
+    """角色以「姓+称呼」出现,前情有特殊状态"""
+    book = {1: [('状态', '苏清瑶:闭关冲击金丹 | 证据:闭生死关')]}
+    items = detect_char_continuity(book, 2, '苏前辈的修炼室大门紧闭。', {'苏清瑶'})
+    assert len(items) == 1
+
+
+def test_char_continuity_alias_first_char():
+    """角色以单姓出现,前情有特殊状态"""
+    book = {1: [('状态', '苏清瑶:闭关冲击金丹 | 证据:闭生死关')]}
+    items = detect_char_continuity(book, 2, '苏某在此等候多时。', {'苏清瑶'})
+    assert len(items) == 1
+
+
+def test_char_continuity_no_alias_match():
+    """别名都匹配不上,不报"""
+    book = {1: [('状态', '苏清瑶:闭关冲击金丹 | 证据:闭生死关')]}
+    items = detect_char_continuity(book, 2, '陈墨走入庭院。', {'苏清瑶', '陈墨'})
+    assert items == []
+
+
+# ── Task 13: detect_char_continuity 四个 bug 回归 ────────
+# 状态一律放在非第 1 章:第 1 章的 fixture 会掩盖 prior 用了泄漏循环变量的 bug②。
+
+def test_char_continuity_prior_points_at_the_right_chapter():
+    """双证据的价值全在指对地方:prior 必须指状态实际所在那一章,不是最早那章。"""
+    book = {
+        1: [("状态", "沈砚:健全|第1章")],
+        5: [("状态", "沈砚:重伤|第5章")],
+    }
+    body = "沈砚推开门，屋里空无一人。" * 30
+    out = detect_char_continuity(book, 7, body, {"沈砚"})
+    assert out, "第5章重伤、第7章出场未交代 → 应当报"
+    assert "第5章" in out[0].prior, f"prior 指错章:{out[0].prior}"
+
+
+def test_char_continuity_respects_char_names_whitelist():
+    """char_names 是白名单:账本里的非人物行(阵法/城主府)不该触发人设报警。"""
+    book = {2: [("状态", "护山大阵:封印|第2章")]}
+    body = "护山大阵嗡鸣了一声。" * 30
+    assert detect_char_continuity(book, 4, body, {"沈砚"}) == []
+
+
+def test_char_continuity_empty_whitelist_falls_back_to_no_filter():
+    """白名单为空(老书没有人物目录)→ 不过滤,特殊状态角色仍能被抓到——
+    这是兜底行为,不是把 bug① 放回来(bug① 是"非空白名单也不过滤")。"""
+    book = {2: [("状态", "沈砚:重伤|第2章")]}
+    body = "沈砚一跃三丈，长剑出鞘。" * 20
+    assert detect_char_continuity(book, 4, body, set()) != []
+
+
+def test_char_continuity_does_not_fire_when_status_change_is_narrated():
+    """全名出现且正文交代了状态变化 → 不该报。旧判据 `state_line not in body[:500]`
+    实质恒真,让这条分支变成噪声源。"""
+    book = {3: [("状态", "沈砚:重伤|第3章")]}
+    body = "沈砚的伤已经好了大半，他推门进来。" + "此后诸事顺遂。" * 30
+    assert detect_char_continuity(book, 5, body, {"沈砚"}) == []
+
+
+def test_char_continuity_still_fires_when_status_ignored():
+    book = {3: [("状态", "沈砚:重伤|第3章")]}
+    body = "沈砚一跃三丈，长剑出鞘，快得没人看清。" * 20
+    out = detect_char_continuity(book, 5, body, {"沈砚"})
+    assert out and "第3章" in out[0].prior
+
+
+def test_char_continuity_single_surname_is_not_an_alias():
+    """单汉字姓在中文里必然撞词(苏醒/苏州/复苏),不能当别名。"""
+    book = {2: [("状态", "苏昭:闭关|第2章")]}
+    body = "他从昏迷中苏醒过来，望向苏州方向。" * 20   # 有「苏」但没有苏昭
+    assert detect_char_continuity(book, 4, body, {"苏昭"}) == []
+
+
+def test_char_continuity_resolution_word_in_different_sentence_still_fires():
+    """钉死 _mentioned_and_addressed 是**句级**scope,不是整篇正文扫描。
+
+    计划原稿写的是 `any(w in _RESOLVED for w in body)`——对整篇正文做全局扫描。
+    实现者收窄成同句检查,理由是:全局扫描一旦命中「好了」这类高频词,会让全书**所有**
+    角色的连续性检测集体静音,比"总是不报"的原 bug 精度更差。这条测试把状态解除词
+    (「痊愈」)放在人物提及的**前一句**,两句之间用句号隔开:
+    - 句级 scope:人物那句「沈砚推门而入。」本身没有解除词 → 仍应报。
+    - 整篇 scope(计划原稿的写法):「痊愈」出现在正文任意位置就会静音整章 → 不会报。
+    若未来有人把 _mentioned_and_addressed "简化"回整篇扫描,这条测试会变红。
+    """
+    book = {3: [("状态", "沈砚:重伤|第3章")]}
+    body = "他的伤早已痊愈。沈砚推门而入。" + "此后诸事顺遂。" * 30
+    out = detect_char_continuity(book, 5, body, {"沈砚"})
+    assert out, "解除词在人物那句之外 → 句级 scope 下仍应报;若不报说明退化成了整篇扫描"
+    assert "第3章" in out[0].prior
+
+
+def test_char_continuity_unrelated_dialogue_cannot_silence_report():
+    """句级 scope 的动机场景本身:「好了」这种高频寒暄词出现在与人物无关的对话里,
+    不该让整章的连续性检测失明。这正是实现者拒绝整篇扫描的理由——用真实场景钉死它。
+    """
+    book = {3: [("状态", "沈砚:重伤|第3章")]}
+    body = ("王婶笑着说道：好了好了，饭都凉了，快来吃饭吧。" + "闲话家常。" * 20
+            + "沈砚一跃三丈，长剑出鞘，快得没人看清。" + "此后诸事顺遂。" * 20)
+    out = detect_char_continuity(book, 5, body, {"沈砚"})
+    assert out, "无关对话里的「好了」不该让含沈砚那句的报告被静音"
+    assert "第3章" in out[0].prior
+
+
+def test_char_continuity_alias_evidence_is_deterministic():
+    """纯函数必须可复现:同一份输入多次调用,证据逐字相同(旧代码 set 遍历会飘)。
+    body 里同时放「沈公子/沈兄/沈某」三个候选别名,逼旧代码的 set 遍历暴露顺序不稳
+    (旧代码里 bare 单姓「沈」也是候选,命中即碰上,更加剧了不稳定)。"""
+    book = {2: [("状态", "沈砚:闭关|第2章")]}
+    body = "沈公子与沈兄一同站着，沈某也在。" * 20
+    outs = [detect_char_continuity(book, 4, body, {"沈砚"}) for _ in range(20)]
+    evidences = {tuple(b.evidence for b in o) for o in outs}
+    assert len(evidences) == 1, f"证据不稳定:{evidences}"
+    assert outs[0] and outs[0][0].evidence == "沈公子"  # 别名生成顺序固定,首个命中恒为「沈公子」
+
+
+# ── Task 14: 裸 except 不再静默吞掉除虫的失败 ────────
+
+def test_scan_chapter_llm_failure_is_visible_not_silent(tmp_path):
+    """LLM 侧挂掉时表象不得与「本章无矛盾」相同——否则双引擎哑一半没人知道。"""
+    from loom.continuity import scan_chapter
+
+    class _BoomBackend:
+        def complete(self, system, user, *, max_chars=None, on_chunk=None):
+            raise RuntimeError("配额耗尽")
+
+    seen = []
+    root = tmp_path / "book"
+    (root / "正文").mkdir(parents=True)
+    rep = scan_chapter(root, 2, "正文内容。" * 20, _BoomBackend(), progress=seen.append)
+    msgs = " ".join(str(e) for e in seen)
+    assert "配额耗尽" in msgs, f"失败原因必须可见:{seen}"
+    assert rep["issues"] is not None, "确定性侧仍要照常出结果,不阻断"
+
+
+def test_scan_chapter_reports_when_llm_returns_unparsable(tmp_path):
+    """后端返回了、但 parse_scan 一条都没抓到 —— 这是 prompt 漂移的典型表象,
+    不走 except、连异常都没有,同样必须报出来。"""
+    from loom.continuity import scan_chapter
+
+    class _GarbageBackend:
+        def complete(self, system, user, *, max_chars=None, on_chunk=None):
+            return "本章读下来没发现什么问题。"      # 非空但格式不合,parse_scan 抓 0 条
+
+    seen = []
+    root = tmp_path / "book"
+    (root / "正文").mkdir(parents=True)
+    scan_chapter(root, 2, "正文内容。" * 20, _GarbageBackend(), progress=seen.append)
+    msgs = " ".join(str(e) for e in seen)
+    assert "格式" in msgs or "没抓到" in msgs, f"哑火必须可见:{seen}"
+
+
+def test_scan_chapter_clean_chapter_does_not_false_positive(tmp_path):
+    """本章真的干净:LLM 按格式老老实实回「通过」+「无」——两段标记都在,只是内容为空。
+    这与上面的「格式漂移」表象都是 llm_items/state_lines 双空,但不该被当成哑火误报,
+    否则每一章「确实无矛盾」都会被拉响警报,警报也就失去意义了。"""
+    from loom.continuity import scan_chapter
+
+    class _CleanBackend:
+        def complete(self, system, user, *, max_chars=None, on_chunk=None):
+            return "===除虫报告===\n通过\n===状态入账===\n- 无"
+
+    seen = []
+    root = tmp_path / "book"
+    (root / "正文").mkdir(parents=True)
+    scan_chapter(root, 2, "正文内容。" * 20, _CleanBackend(), progress=seen.append)
+    warns = [e for e in seen if e.get("type") == "warn"]
+    assert warns == [], f"本章确实无矛盾,不该被误报成哑火:{warns}"
+
+
+def _drifted_marker_warns(tmp_path, marker_line: str) -> list[dict]:
+    """跑一次 scan_chapter,LLM 回复用给定的漂移版「===除虫报告===」分隔行,内容仍老实
+    干净(「通过」+「无」)。返回 warn 事件——供各变体测试断言「没有假警报」。"""
+    from loom.continuity import scan_chapter
+
+    class _DriftedMarkerBackend:
+        def complete(self, system, user, *, max_chars=None, on_chunk=None):
+            return f"{marker_line}\n通过\n===状态入账===\n- 无"
+
+    seen = []
+    root = tmp_path / "book"
+    (root / "正文").mkdir(parents=True)
+    scan_chapter(root, 2, "正文内容。" * 20, _DriftedMarkerBackend(), progress=seen.append)
+    return [e for e in seen if e.get("type") == "warn"]
+
+
+def test_scan_chapter_report_marker_extra_whitespace_not_false_positive(tmp_path):
+    """分隔行等号与文字之间多打了空格——本章仍是干净的,不该被误报成格式漂移。"""
+    warns = _drifted_marker_warns(tmp_path, "===  除虫报告  ===")
+    assert warns == [], f"纯空白抖动不该被误报成格式漂移:{warns}"
+
+
+def test_scan_chapter_report_marker_different_equals_count_not_false_positive(tmp_path):
+    """等号数量从 3 个变成 2 个——本章仍是干净的,不该被误报成格式漂移。"""
+    warns = _drifted_marker_warns(tmp_path, "==除虫报告==")
+    assert warns == [], f"等号数量抖动不该被误报成格式漂移:{warns}"
+
+
+def test_scan_chapter_report_marker_markdown_emphasis_not_false_positive(tmp_path):
+    """模型把文字部分包了一层 markdown 强调——本章仍是干净的,不该被误报成格式漂移。"""
+    warns = _drifted_marker_warns(tmp_path, "===**除虫报告**===")
+    assert warns == [], f"markdown 强调包裹不该被误报成格式漂移:{warns}"
+
+
+def test_scan_chapter_report_marker_fullwidth_equals_not_false_positive(tmp_path):
+    """等号写成全角——本章仍是干净的,不该被误报成格式漂移。"""
+    warns = _drifted_marker_warns(tmp_path, "＝＝＝除虫报告＝＝＝")
+    assert warns == [], f"全角等号不该被误报成格式漂移:{warns}"
+
+
+def test_agents_scan_continuity_does_not_swallow_silently(tmp_path):
+    """agents 侧的外层裸 except 会连 scan_chapter 整个炸掉都吞掉——也要留痕。
+
+    崩溃点必须选在 scan_chapter 自己那个 LLM try/except 之外,否则内层先吞,外层永远
+    够不着(用 backend.complete() 直接抛异常测不出外层——它会被 continuity.py 的内层
+    except 拦下,两条 warn 文案都恰好带「除虫」子串,断言等于白测)。这里让 project_root
+    指向一个普通文件而非目录:LLM 段正常走完后,_note_report 的 path.parent.mkdir()
+    因为父路径不是目录而抛 NotADirectoryError——这发生在 scan_chapter 自身 try 块之外,
+    只有 _scan_continuity 的外层 except 才可能抓到它。backend 用能正常解析的干净响应,
+    确保内层「LLM 侧没跑成」那条 warn 不会被顺带触发,断言也专挑外层独有的措辞。
+    """
+    from loom.agents import _scan_continuity
+    from loom.config import Config
+
+    class _CleanBackend:
+        def complete(self, system, user, *, max_chars=None, on_chunk=None):
+            return "===除虫报告===\n通过\n===状态入账===\n- 无"
+
+    not_a_dir = tmp_path / "not_a_dir"
+    not_a_dir.write_text("我是文件,不是目录", encoding="utf-8")
+
+    seen = []
+    cfg = Config()
+    cfg.continuity_scan = True
+    _scan_continuity(not_a_dir, 2, "正文。" * 20, _CleanBackend(), cfg, seen.append)
+
+    warns = [e for e in seen if e.get("type") == "warn"]
+    assert len(warns) == 1, f"应且只应有外层这一条 warn:{seen}"
+    msg = str(warns[0])
+    # 不断言具体异常类名:同一次 mkdir("父路径其实是个文件") 在 POSIX 上抛
+    # NotADirectoryError,在 Windows 上抛 FileExistsError([WinError 183])——
+    # 类名是平台细节,不是本测试要证明的东西(CI 已在 windows-latest 上验证过差异)。
+    # 改为断言两件与平台无关的事:①消息里确实格式化进了一个"XxxError:"形态的真实
+    # 异常类型(不是空字符串、不是被吞掉);②消息带着这次失败的哨兵路径片段
+    # (not_a_dir 的目录名),证明这条异常确实源于我们构造的这次 mkdir,而不是巧合。
+    assert re.search(r"[A-Za-z]+Error:", msg), f"外层必须报出真实异常类型:{seen}"
+    assert not_a_dir.name in msg, f"外层异常消息必须带上失败路径(哨兵目录名),证明确实来自这次 mkdir:{seen}"
+    assert "不影响本章出稿" in msg, f"这句措辞只在 _scan_continuity 的外层 warn 里出现:{seen}"
+    assert "LLM 侧" not in msg, f"不该是 continuity.py 内层那条 warn 被截胡:{seen}"
+

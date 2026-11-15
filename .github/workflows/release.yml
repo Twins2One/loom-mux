@@ -1,0 +1,127 @@
+name: Build & Release
+
+# 推一个 v* tag(如 v0.2.1)就自动打 Mac + Windows 包并发到同一个 Release。
+# 手动触发(workflow_dispatch)只构建+上传 artifact,不发 Release(方便测构建)。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    # 发版硬门禁:测试/eval 不过就不打包、不发版(与 CI 同一口径)。
+    strategy:
+      fail-fast: false          # 一个平台红了另一个照跑,一次看全两边
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"           # Windows runner 默认 cp1252,不设中文/制表符输出会 UnicodeEncodeError
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: 全量测试
+        run: python -m pytest tests/ -q
+      - name: eval 回归门禁(确定性 grader,零 key)
+        run: python -m evals.run_eval --gate
+
+  build-mac:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dist]"
+      - name: PyInstaller 打包(.app)
+        run: pyinstaller --noconfirm --clean packaging/loom.spec
+      - name: 压成 zip(-y 保留 .app 符号链接)
+        run: cd dist && zip -r -y Loom-mac.zip Loom.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-mac
+          path: dist/Loom-mac.zip
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dist]"
+      - name: PyInstaller 打包(.exe 文件夹)
+        run: pyinstaller --noconfirm --clean packaging/loom.spec
+      - name: 冒烟 —— 真启动一次 exe,确认不闪退
+        shell: pwsh
+        # 无终端构建里 sys.stdout=None,正是 1.0.0 在 Windows 双击即崩的根因。
+        # 这里走 LOOM_NO_WINDOW 兜底(只起服务、不开 webview 窗口),启动十几秒,
+        # 看进程是否还活着、有没有写 crash log。崩了就让这棒失败,绝不裸发。
+        run: |
+          $env:LOOM_NO_WINDOW = "1"
+          $crash = Join-Path $env:TEMP "loom-crash.log"
+          if (Test-Path $crash) { Remove-Item $crash }
+          $p = Start-Process -FilePath "dist/Loom/Loom.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if (Test-Path $crash) {
+            Write-Host "== crash log =="; Get-Content $crash
+            if (-not $p.HasExited) { $p.Kill() }
+            exit 1
+          }
+          if ($p.HasExited) {
+            Write-Host "exe 提前退出,exit code = $($p.ExitCode)"; exit 1
+          }
+          Write-Host "OK:启动 12s 未崩、无 crash log"
+          $p.Kill()
+      - name: 压成 zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/Loom -DestinationPath Loom-win.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-win
+          path: Loom-win.zip
+
+  release:
+    needs: [build-mac, build-windows]
+    # 测试是硬门禁:test 挂 → 两个 build(needs: test)被跳过 → build-mac.result≠success → 这里不发。
+    # 仍保留旧策略:测试过了、只是 Windows 打包那棒失败,也照发 Mac 包(Mac 包是稳的)。只在推 tag 时发 Release。
+    if: always() && needs.build-mac.result == 'success' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
+      - name: 创建 / 更新 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Release 正文只取当前版本那一节:release-notes.md 保留全历史,但每个 Release 页面不再
+          # 拖着一长串旧版本(从「## <版本> 有什么」到下一个「## 」之前)。
+          VER="${GITHUB_REF_NAME#v}"
+          awk -v h="## $VER 有什么" '$0==h{p=1} p&&/^## /&&$0!=h{exit} p{print}' \
+            packaging/release-notes.md > release-body.md
+          [ -s release-body.md ] || cp packaging/release-notes.md release-body.md   # 兜底:没匹配到用全文
+          gh release create "$GITHUB_REF_NAME" art/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Loom $GITHUB_REF_NAME" \
+            --notes-file release-body.md \
+          || gh release upload "$GITHUB_REF_NAME" art/*.zip --repo "$GITHUB_REPOSITORY" --clobber

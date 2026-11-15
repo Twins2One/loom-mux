@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dist = ["pyinstaller>=6.0"]   # 打包成 .app/.exe:pip install -e ".[dist]"
-dev = ["pytest>=8.0", "pyyaml>=6.0", "build>=1.0"]   # 跑测试:pip install -e ".[dev]" && pytest
+dev = ["pytest>=8.0", "pyyaml>=6.0", "build>=1.0", "numpy>=1.26"]   # 跑测试:pip install -e ".[dev]" && pytest
 #   build 是给 tests/test_wheel_build.py 用的:没它那条测试会 skip,
 #   而它护的正是「wheel 装不上」这类只有全新安装才暴露的缺陷——静默 skip 等于没护栏。
 

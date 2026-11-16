@@ -431,13 +431,46 @@ def _db_readable() -> bool:
         return False
 
 
-def _export_desktop() -> Path:
-    """导出落点根目录（默认桌面；`LOOM_EXPORT_DESKTOP` 可覆盖，测试用）。"""
+KEEP_EXPORTS = 16      # 只按时间顺序保留最近 16 次抢救导出（用户 2026-11-16 裁定）
+
+
+def _export_base() -> Path:
+    """导出落点根目录。
+
+    2026-11-16（用户裁定）：**收进知识库目录一起管理** —— `<知识库>/记忆抢救/`，
+    每次导出是其中一个 `Loom记忆抢救-<时间戳>` 子目录，只保留最新 16 次。
+    桌面落点与真实用户无关，只在开发/测试用 `LOOM_EXPORT_DESKTOP` 显式指定时才出现。
+    """
     import os
     raw = (os.environ.get("LOOM_EXPORT_DESKTOP") or "").strip()
     if raw:
         return Path(raw)
-    return Path.home() / "Desktop"
+    from .libroot import library_root
+    return Path(library_root()) / "记忆抢救"
+
+
+def _prune_exports(base: Path, keep: int = KEEP_EXPORTS) -> list[str]:
+    """只按时间顺序保留最新 keep 份导出，多出来的整目录清掉。返回被清掉的目录名。"""
+    try:
+        cand = [p for p in base.iterdir()
+                if p.is_dir() and p.name.startswith("Loom记忆抢救-")]
+    except OSError:
+        return []
+    # 目录名里带 `%Y%m%d-%H%M%S`，按名字倒序就是按时间倒序
+    cand.sort(key=lambda p: p.name, reverse=True)
+    removed: list[str] = []
+    for d in cand[keep:]:
+        try:
+            _cleanup(d)
+            removed.append(d.name)
+        except OSError:
+            pass
+    return removed
+
+
+def _export_desktop() -> Path:
+    """导出落点根目录（默认知识库下的「记忆抢救」；`LOOM_EXPORT_DESKTOP` 可覆盖，测试/开发用）。"""
+    return _export_base()
 
 
 def export_memory(root: str | None = None) -> dict:
@@ -446,15 +479,16 @@ def export_memory(root: str | None = None) -> dict:
     - 库完全不可读 ⇒ 只导速记本原文，说明「索引已丢失，原文完整」。
     - 库部分可读 ⇒ 附 `索引清单.csv`，标注「来自损坏库，仅供对照」。
     - 速记本为空 ⇒ 报「没有可导出的记忆数据」，不产出空包冒充成功。
-    - 落点：桌面 `Loom记忆抢救-<时间戳>`（本轮边界：不做自定义目录选择器）。
+    - 落点：`<知识库>/记忆抢救/Loom记忆抢救-<时间戳>`（2026-11-16 用户裁定：与知识库一同管理，
+      只按时间顺序保留最新 16 次；桌面落点仅开发/测试用 `LOOM_EXPORT_DESKTOP` 指定时出现）。
     """
     ts = time.strftime("%Y%m%d-%H%M%S")
     files_written: list[str] = []
     outdir = Path("")
     try:
-        desktop = _export_desktop()
-        desktop.mkdir(parents=True, exist_ok=True)
-        outdir = desktop / ("Loom记忆抢救-" + ts)
+        base = _export_desktop()
+        base.mkdir(parents=True, exist_ok=True)
+        outdir = base / ("Loom记忆抢救-" + ts)
         outdir.mkdir(parents=True)
 
         roots = [Path(root)] if root else list_books()
@@ -521,7 +555,9 @@ def export_memory(root: str | None = None) -> dict:
                 "索引清单": csv_rel,
                 "说明": ("索引已丢失，原文完整" if not readable
                         else "索引清单来自损坏库，仅供对照"),
-                "校验": spot["说明"]}
+                "校验": spot["说明"],
+                # 与知识库一同管理：只留最新 16 次，多出来的在这里清掉（清不掉不算失败）
+                "已清理旧导出": _prune_exports(base)}
     except Exception as e:      # noqa: BLE001 - 导出失败要能看见原因，不静默
         try:
             if str(outdir):

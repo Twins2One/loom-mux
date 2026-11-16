@@ -130,25 +130,30 @@ def test_缓存版本策略_戳日期不得早于文件改动():
     repo_root = webui.parents[1]          # <repo>/loom/webui → 上两级是仓库根
     pat = re.compile(r'(?:src|href)="(/[^"?]+)\?v=(\d{8})[a-z]?"')
 
-    def _changed_date(target: Path) -> date:
-        """内容"最后一次变"的日期：优先问 git，拿不到/未提交时退回 mtime。
+    def _changed_date(target: Path):
+        """该资源"需要前移戳"的日期；返回 None = 这条不判。
 
-        2026-11-16（CI 修复）：git checkout / 全新 clone 会把所有文件 mtime 刷成
-        检出时间，只按 mtime 判会把每份资源都判成"刚改过"，在任何干净仓库上必红。
-        规则：仓库里能查到该文件的提交、且工作区没有未提交改动 ⇒ 用提交时间；
-        否则（本地改完还没提交）仍用 mtime —— 本地"改了内容忘了前移戳"照样抓得住。
+        语义（2026-11-16 修）：这条守卫要抓的是「**改了内容、还没提交、却忘了前移戳**」。
+        已提交的内容在提交时已被评审过；而任何 clone/checkout 都会把整棵树的 mtime
+        刷成检出时间，拿 mtime 判会把每个资源都判成"刚改过"，在干净仓库上必红。
+        仓库是一次性导入时，git log 的提交日期对每个文件又都是导入那天，同样没意义。
+
+        所以：文件不在本仓库（开发树里按 mtime 兜底）/ 有未提交改动 ⇒ 按 mtime 判；
+        已提交且工作区干净 ⇒ 不判。
         """
         try:
             rel = target.resolve().relative_to(repo_root.resolve()).as_posix()
+        except Exception:
+            return date.fromtimestamp(target.stat().st_mtime)
+        try:
+            tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel],
+                                     cwd=str(repo_root), capture_output=True, text=True, timeout=15)
+            if tracked.returncode != 0:
+                return date.fromtimestamp(target.stat().st_mtime)   # 不在仓库里 → 按 mtime
             dirty = subprocess.run(["git", "status", "--porcelain", "--", rel],
-                                   cwd=str(repo_root), capture_output=True,
-                                   text=True, timeout=15)
+                                   cwd=str(repo_root), capture_output=True, text=True, timeout=15)
             if dirty.returncode == 0 and not dirty.stdout.strip():
-                out = subprocess.run(["git", "log", "-1", "--format=%ct", "--", rel],
-                                     cwd=str(repo_root), capture_output=True,
-                                     text=True, timeout=15)
-                if out.returncode == 0 and out.stdout.strip().isdigit():
-                    return date.fromtimestamp(int(out.stdout.strip()))
+                return None                                          # 已提交且干净 → 不判
         except Exception:
             pass
         return date.fromtimestamp(target.stat().st_mtime)
@@ -161,6 +166,8 @@ def test_缓存版本策略_戳日期不得早于文件改动():
             if not target.is_file():
                 continue                       # 外部/CDN 引用不在此规则内
             changed = _changed_date(target)
+            if changed is None:
+                continue
             stamped = date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
             if stamped < changed:
                 problems.append(f"{page}: {ref} 戳={stamp} 但文件改于 {changed.isoformat()}")

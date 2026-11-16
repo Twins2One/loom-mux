@@ -88,7 +88,7 @@ def test_缓存戳已bump():
     # app 与本轮复审修过的 workbench/library 都动过内容，戳一并前移到 f（style.css 仍是 e）。
     assert "/app.js?v=20261116f" in body, "index.html 的 app.js 缓存戳未 bump 到 20261116f"
     # 2026-11-11c = v7 收口：本轮改过的 core.js / app.js / workbench.js / library.js 统一前移，
-    # 避免"改了内容却让浏览器继续吃旧缓存"（需求方 审查记录）。
+    # 避免"改了内容却让浏览器继续吃旧缓存"（总工 xst-mwbt1x80）。
     assert "/study/core.js?v=20261116d" in body, "index.html 的 core.js 缓存戳未 bump 到 20261116d"
     # 写死具体戳而不是裸 `/style.css?v=`：本文件开头那条纪律——裸子串会让 study.html 的戳假通过。
     assert "/style.css?v=20261116e" in body, "index.html 的 style.css 缓存戳未 bump 到 20261116e"
@@ -122,11 +122,37 @@ def test_缓存版本策略_戳日期不得早于文件改动():
     这里会点名是哪个文件。
     """
     import re
+    import subprocess
     from datetime import date
     from pathlib import Path
 
     webui = Path(ts.__file__.rsplit("loom", 1)[0]) / "loom" / "webui"
+    repo_root = webui.parents[1]          # <repo>/loom/webui → 上两级是仓库根
     pat = re.compile(r'(?:src|href)="(/[^"?]+)\?v=(\d{8})[a-z]?"')
+
+    def _changed_date(target: Path) -> date:
+        """内容"最后一次变"的日期：优先问 git，拿不到/未提交时退回 mtime。
+
+        2026-11-16（CI 修复）：git checkout / 全新 clone 会把所有文件 mtime 刷成
+        检出时间，只按 mtime 判会把每份资源都判成"刚改过"，在任何干净仓库上必红。
+        规则：仓库里能查到该文件的提交、且工作区没有未提交改动 ⇒ 用提交时间；
+        否则（本地改完还没提交）仍用 mtime —— 本地"改了内容忘了前移戳"照样抓得住。
+        """
+        try:
+            rel = target.resolve().relative_to(repo_root.resolve()).as_posix()
+            dirty = subprocess.run(["git", "status", "--porcelain", "--", rel],
+                                   cwd=str(repo_root), capture_output=True,
+                                   text=True, timeout=15)
+            if dirty.returncode == 0 and not dirty.stdout.strip():
+                out = subprocess.run(["git", "log", "-1", "--format=%ct", "--", rel],
+                                     cwd=str(repo_root), capture_output=True,
+                                     text=True, timeout=15)
+                if out.returncode == 0 and out.stdout.strip().isdigit():
+                    return date.fromtimestamp(int(out.stdout.strip()))
+        except Exception:
+            pass
+        return date.fromtimestamp(target.stat().st_mtime)
+
     problems = []
     for page in ("index.html", "study.html"):
         body = (webui / page).read_text(encoding="utf-8")
@@ -134,7 +160,7 @@ def test_缓存版本策略_戳日期不得早于文件改动():
             target = webui / ref.lstrip("/")
             if not target.is_file():
                 continue                       # 外部/CDN 引用不在此规则内
-            changed = date.fromtimestamp(target.stat().st_mtime)
+            changed = _changed_date(target)
             stamped = date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
             if stamped < changed:
                 problems.append(f"{page}: {ref} 戳={stamp} 但文件改于 {changed.isoformat()}")

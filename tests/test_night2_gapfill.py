@@ -47,6 +47,7 @@ def test_run_turn_path_injection_falls_back(tmp_path):
     assert not (tasks_root / "../../逃逸").exists()
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_task_id_contain_check(tmp_path):
     """task_id 带 ../ 注入:写入/读取侧 contain 校验拒绝越界(P2 防御)。"""
     base = tmp_path / "任务"

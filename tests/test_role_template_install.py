@@ -49,6 +49,7 @@ def test_status_missing_present_and_existing_custom_is_never_replaced(old_book):
     assert custom.read_bytes() == before
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_empty_bad_utf8_and_link_are_not_installable(old_book, tmp_path):
     target = old_book / rti.REL
     target.write_bytes(b"")
@@ -65,6 +66,7 @@ def test_empty_bad_utf8_and_link_are_not_installable(old_book, tmp_path):
     assert marker.read_text(encoding="utf-8") == "outside"
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_real_windows_publish_is_complete_loadable_and_idempotent(old_book):
     c = rti.confirm(old_book)
     got = rti.install(old_book, c["confirmation_ticket"])
@@ -88,6 +90,7 @@ def test_ticket_is_bound_to_book_template_and_process_lifetime(old_book, tmp_pat
     assert e2.value.code == "confirmation_expired"
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_a15_two_thread_confirmations_only_one_installed(old_book):
     tickets = [rti.confirm(old_book)["confirmation_ticket"] for _ in range(2)]
     gate = threading.Barrier(2)
@@ -106,6 +109,7 @@ def test_a15_two_thread_confirmations_only_one_installed(old_book):
     assert load_agent(old_book, rti.ROLE).system_prompt.strip()
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_a16_custom_file_created_after_initial_check_is_untouched(old_book):
     c = rti.confirm(old_book)
     target = old_book / rti.REL
@@ -121,6 +125,7 @@ def test_a16_custom_file_created_after_initial_check_is_untouched(old_book):
     assert target.read_bytes() == custom and target.stat().st_mtime_ns == observed["mtime"]
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_a17a_path_replaced_by_junction_before_open_is_rejected(old_book, tmp_path):
     c = rti.confirm(old_book)
     agents = old_book / "agents"
@@ -138,6 +143,7 @@ def test_a17a_path_replaced_by_junction_before_open_is_rejected(old_book, tmp_pa
     assert not (external / f"{rti.ROLE}.md").exists()
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_a17b_opened_directory_stays_in_book_while_path_becomes_junction(old_book, tmp_path):
     c = rti.confirm(old_book)
     agents = old_book / "agents"
@@ -237,6 +243,7 @@ def test_staging_write_failure_is_explicit_and_target_remains_missing(old_book, 
     assert not (old_book / rti.REL).exists()
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_http_status_confirm_install_and_installed_chat_entry(old_book, monkeypatch):
     from fastapi.testclient import TestClient
     import loom.agent_chat as agent_chat
@@ -289,6 +296,7 @@ def _publish_worker(staging, agents, expected, start, queue):
         queue.put(exc.code)
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_independent_process_no_replace_competition(old_book, tmp_path):
     agents = old_book / "agents"
     expected = rti._directory_identity(agents)

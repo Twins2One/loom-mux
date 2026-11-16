@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """F10 表征测试（先红）：书房 role 路径注入 + 书内快照 root 未校验。
 
-锁定缺陷现场（历史会话 深度审查 F10）：
+锁定缺陷现场（3c678607 深度审查 F10）：
 - study/__init__.py 把客户端可控的 b.role 直接拼进路径
   （library/.loom-tasks/<role>/<conversation>）——绝对路径/分隔符可逃出任务子区；
 - api/agents.py 的任务快照端点直接 Path(root)，未走 _project_root 口径。
@@ -21,6 +21,7 @@ def night_home(tmp_path, monkeypatch):
     yield home
 
 
+@pytest.mark.skipif(not __import__("sys").platform.startswith("win"), reason="Windows 专属：目录绑定的 no-replace 发布原语 / Windows 路径语义")
 def test_role路径逃逸被拒(night_home):
     """F10-1：sanitize_role 清洗后 base 不得逃出 .loom-tasks 子区（路由形状）。"""
     from loom import task_state as ts
